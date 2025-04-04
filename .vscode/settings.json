@@ -1,0 +1,21 @@
+{
+    "editor.rulers": [119],
+
+    "python.defaultInterpreterPath": "~/myenvs/ai-assist/bin/python",
+    "python.analysis.typeCheckingMode": "standard",
+    
+    "[python]": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        }
+    },
+
+    "notebook.defaultFormatter": "charliermarsh.ruff",
+    "notebook.formatOnSave.enabled": true,
+    "notebook.codeActionsOnSave": {
+        "source.organizeImports": "explicit"
+    }
+
+}
