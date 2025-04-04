@@ -1,0 +1,20 @@
+# Defaults: https://docs.astral.sh/ruff/configuration/
+
+# Allow longer lines
+line-length = 119
+
+# Assume python 3.11
+target-version = "py312"
+
+# Include Jupyter notebooks into checks
+extend-include = ["*.ipynb"]
+
+# In addition to the standard set of exclusions, omit all tests, plus a specific file.
+extend-exclude = ["experimental", "deprecated", "todo"]
+
+[lint]
+# Which rules to enable
+select = ["E4", "E7", "E9", "F", "B", "I"]
+# Enable D at some point
+
+unfixable = ["B"]
