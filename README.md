@@ -4,7 +4,7 @@
  
 By analyzing live measurements and comparing them with an extensive historical database, **AI-ASSIST** uses pattern recognition techniques to identify similarities with known operating scenarios. This allows the system to assess potential risks and predict system behavior with high accuracy, providing operators with valuable insights for their decision-making.
  
-**AI-ASSIST** is a joint project of [**SensorLab**](https://sensorlab.ijs.si/) at the Jožef Stefan Institute, the [**Laboratory of  Electric Power Supply**](https://lpee.fe.uni-lj.si/en/) at the Faculty of Electrical Engineering and [**ELES**](https://www.eles.si/en/), combining expertise in the fields of artificial intelligence, power systems and grid operation.
+**AI-ASSIST** is a joint project of [**SensorLab**](https://sensorlab.ijs.si/) at the Jožef Stefan Institute, the [**Laboratory of Electric Power Supply**](https://lpee.fe.uni-lj.si/en/) at the Faculty of Electrical Engineering and [**ELES**](https://www.eles.si/en/), combining expertise in the fields of artificial intelligence, power systems and grid operation.
 
 ## 📊 Project Overview
 
@@ -79,4 +79,4 @@ This project is licensed under the MIT License. See [LICENSE](./LICENSE) for det
 
 ## 📫 Contact
 
-For inquiries related to the project, please refer to the contact information on the [official website](https://sensorlab.ijs.si/projects/ai-assist/).
+For inquiries related to the project, please refer to the contact information on the [Laboratory of Electric Power Supply website](https://lpee.fe.uni-lj.si/en/personnel/urban-rudez-ph-d/) or [SensorLab website](https://sensorlab.ijs.si/about/).
