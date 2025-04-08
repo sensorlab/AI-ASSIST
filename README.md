@@ -1,8 +1,10 @@
 # AI-ASSIST
 
-
-**AI-ASSIST** is a research project aimed at enhancing power system analysis and control through AI-assisted methodologies. The project is a collaboration between **SensorLab** at the Jožef Stefan Institute, the **Faculty of Electrical Engineering**, and **ELES**.
-
+**AI-ASSIST** is a cutting-edge research project dedicated to improving the analysis and control of power grids, with a focus on real-time security assessment and grid stability estimation. The project uses advanced AI-based methods to assess how safe and stable the power grid is under current operating conditions.
+ 
+By analyzing live measurements and comparing them with an extensive historical database, **AI-ASSIST** uses pattern recognition techniques to identify similarities with known operating scenarios. This allows the system to assess potential risks and predict system behavior with high accuracy, providing operators with valuable insights for their decision-making.
+ 
+**AI-ASSIST** is a joint project of [**SensorLab**](https://sensorlab.ijs.si/) at the Jožef Stefan Institute, the [**Laboratory of  Electric Power Supply**](https://lpee.fe.uni-lj.si/en/) at the Faculty of Electrical Engineering and [**ELES**](https://www.eles.si/en/), combining expertise in the fields of artificial intelligence, power systems and grid operation.
 
 ## 📊 Project Overview
 
@@ -58,13 +60,6 @@ pip install -e .
   Due to the sensitivity of the data, this part of the analysis is excluded from the public repository.
 
 
-## 🔗 External Links
-
-- 🌐 AI-ASSIST Official Project Page
-- 🧪 SensorLab, Jožef Stefan Institute
-- 🏫 Faculty of Electrical Engineering, UL
-
-
 ## 💰 Funding
 
 The AI-ASSIST project receives funding from the Slovenian Research and Innovation Agency (ARIS) under Grant Agreement No. L2-50053.
@@ -73,7 +68,8 @@ The AI-ASSIST project receives funding from the Slovenian Research and Innovatio
 ## 👥 Contributors
 
 - **SensorLab**, Jožef Stefan Institute  
-- **Faculty of Electrical Engineering**, University of Ljubljana
+- **Laboratory of  Electric Power Supply**, Faculty of Electrical Engineering, University of Ljubljana
+- **ELES**, Slovenian transmission system operator
 
 
 ## 📄 License
