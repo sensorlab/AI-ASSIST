@@ -10,9 +10,6 @@ By analyzing live measurements and comparing them with an extensive historical d
 
 This repository contains code, data, and analysis related to the AI-ASSIST project. The analyses focus primarily on the IEEE 39-bus test case system, with selected outcomes available here.
 
-> ⚠️ **Note**: Some parts of the analysis involving the Slovenian power grid are confidential and are **not included** in this repository.
-
-
 ## 🛠️ Installation
 
 To set up the project environment and install the necessary dependencies, follow these steps:
@@ -55,9 +52,6 @@ pip install -e .
 
 - **IEEE 39-Bus System**  
   Includes power flow simulations, machine learning-based stability analysis, and visualization.
-
-- **Slovenian Grid Network** *(Confidential)*  
-  Due to the sensitivity of the data, this part of the analysis is excluded from the public repository.
 
 
 ## 💰 Funding
