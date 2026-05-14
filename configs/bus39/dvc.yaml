@@ -23,7 +23,7 @@ stages:
         python ${path.scripts}/transform.py
         --in-dir ${path.data.interim}
         --out-dir ${path.data.interim}
-      - rm ${path.data.interim}/{LF,FSA,TSA,SSSA}_main.csv
+      # - rm ${path.data.interim}/{LF,FSA,TSA,SSSA}_main.csv
     deps:
       - ${path.scripts}/transform.py
       - ${path.data.raw}/data.zip

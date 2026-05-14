@@ -49,6 +49,7 @@ def prepare_lf_dataset(path: Path) -> pd.DataFrame:
 
 
 def prepare_fsa_dataset(path: Path) -> pd.DataFrame:
+    raise NotImplementedError
     # Load FSA
 
     if not path.exists():
