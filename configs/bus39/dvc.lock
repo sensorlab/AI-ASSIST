@@ -1,0 +1,26 @@
+schema: '2.0'
+stages:
+  _defaults:
+    cmd: exit 0
+  preparation:
+    cmd:
+    - mkdir -p data/bus39/interim
+    - unzip -o data/bus39/raw/data.zip -d data/bus39/interim
+    - "nice -n 19 python scripts/bus39/transform.py --in-dir data/bus39/interim --out-dir
+      data/bus39/interim\n"
+    - rm data/bus39/interim/{LF,FSA,TSA,SSSA}_main.csv
+    deps:
+    - path: data/bus39/raw/data.zip
+      hash: md5
+      md5: c14fb5431ae379ea470334721cb7eaf7
+      size: 13587996
+    - path: scripts/bus39/transform.py
+      hash: md5
+      md5: 08c92b5529894ce0c04ab8e15ec70ad3
+      size: 4694
+    outs:
+    - path: data/bus39/interim
+      hash: md5
+      md5: 19baef4c8ca2d7b9e729f0e4d76cf029.dir
+      size: 1606073779
+      nfiles: 4
