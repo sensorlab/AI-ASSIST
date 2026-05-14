@@ -32,10 +32,15 @@ update: ## Update development dependencies.
 	$(Q)$(UV) pip install -Ur pyproject.toml --all-extras --refresh --exact --editable .
 	$(Q)$(UV) lock --upgrade
 
+
 .PHONY: upgrade
 upgrade: install update ## Upgrade installation.
 	$(Q)pre-commit autoupdate
 
+
+.PHONY: pre-commit
+pre-commit:
+	pre-commit run --all-files
 
 
 .PHONY: help
