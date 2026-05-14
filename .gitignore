@@ -288,3 +288,15 @@ $RECYCLE.BIN/
 *.csv
 *.gz
 tmp/
+
+# Ignore everything inside data datasets
+data/*/*
+
+# But keep dataset directories themselves
+!data/*/
+
+# Allow raw directories
+!data/*/raw/
+
+# Allow files inside raw
+!data/*/raw/**

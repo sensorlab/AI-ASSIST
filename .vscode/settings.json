@@ -1,9 +1,8 @@
 {
     "editor.rulers": [119],
 
-    "python.defaultInterpreterPath": "~/myenvs/ai-assist/bin/python",
     "python.analysis.typeCheckingMode": "standard",
-    
+
     "[python]": {
         "editor.formatOnSave": true,
         "editor.defaultFormatter": "charliermarsh.ruff",

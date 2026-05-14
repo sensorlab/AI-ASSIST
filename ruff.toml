@@ -1,20 +1,41 @@
+# Make Python code consistent through all projects.
 # Defaults: https://docs.astral.sh/ruff/configuration/
 
 # Allow longer lines
-line-length = 119
+line-length = 120
 
-# Assume python 3.11
+# Assume python version
 target-version = "py312"
 
-# Include Jupyter notebooks into checks
-extend-include = ["*.ipynb"]
-
 # In addition to the standard set of exclusions, omit all tests, plus a specific file.
-extend-exclude = ["experimental", "deprecated", "todo"]
+extend-exclude = ["experimental", "deprecated", "todo", "tmp"]
+
 
 [lint]
 # Which rules to enable
-select = ["E4", "E7", "E9", "F", "B", "I"]
-# Enable D at some point
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+    #"D", # pydocstyle
 
-unfixable = ["B"]
+    "YTT", # flake8-2020
+    "CPY", # flake8-copyright
+    "SIM", # flake8-simplify
+    # "TRY", # tryceratops
+]
+
+ignore = [
+    "E501", # LineTooLong
+    "E731", # DoNotAssignLambda
+    # "S101", # use of assert detected
+    "F401", # remove unused imports
+]
+
+unfixable = [
+    "B",
+]

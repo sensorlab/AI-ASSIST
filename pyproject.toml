@@ -8,26 +8,35 @@ authors = [
 ]
 license = { file = "LICENSE" }
 readme = "README.md"
-requires-python = "~=3.12"
+requires-python = "~=3.12.0"
 dependencies = [
-  "pandas[performance, output-formatting, computation, parquet, compression] ~=2.2.3",
+  "pandas[performance,output-formatting,computation,parquet,compression] ~=3.0.0",
   "numpy",
   "scipy",
 
+  "fastapi[standard]",
+  "pydantic",
+  "pydantic-extra-types",
+
   "matplotlib ~=3.10.0",
   "seaborn ~=0.13.2",
-  "plotly ~=5.24.1",
+  # "plotly ~=6.5.0",
 
-  "scikit-learn ~=1.6.1",
-  "scikit-learn-intelex ~=2025.2.0",
+  "scikit-learn ~=1.8.0",
+  # "xgboost-cpu ~=3.1.1",
+  # "scikit-learn-intelex ~=2025.11.0",
 
-  "jupyterlab ~=4.3.4",
-  "ipython <9.0.0",
+  "jupyterlab ~=4.5.0",
   "nbconvert ~=7.16.6",
 
   "ipywidgets ~=8.1.5",
-  "shap ~=0.47.0",
-  "networkx ~=3.4.2"
+  "shap ~=0.51.0",
+  "networkx ~=3.6.0",
+
+  "ruff",
+  "dvc",
+  "qdrant-client[fastembed] ~=1.18.0",
+  "pre-commit",
 ]
 
 
