@@ -1,15 +1,36 @@
+import logging
 import re
 import time
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
+logger = logging.getLogger(__name__)
+
+DEFAULT_TRANSFORM = {
+    # "float32": "float64",  # Convert float64 columns to float32
+    # "int32": "int64",  # Convert int64 columns to int32
+    "category": ["object", "string"],  # Convert object columns (usually strings) to category
+}
+
+
+class TimeIt:
+    def __init__(self, msg: str):
+        self.msg = msg
+
+    def __enter__(self) -> None:
+        self.start = time.perf_counter()
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.stop = time.perf_counter()
+        print(f"{self.msg}: {self.stop - self.start:.3f}s")
+
 
 def standardize_col_name(name: str) -> str:
-    name = re.sub(
-        r"\d+", lambda match: f"{int(match.group(0)):02d}", name
-    )  # convert all single-digits to double digits
-    name = re.sub(r"\_?\[\w+\]", "", name)  # remove units
+    # convert all single-digits to double digits
+    name = re.sub(r"\d+", lambda match: f"{int(match.group(0)):02d}", name)
+    # name = re.sub(r"\_?\[\w+\]", "", name)  # remove units
     name = re.sub(r"\s+", "_", name)  # change all spaces to underscores
     name = re.sub(r"\_$", "", name)  # remove ending underscore
     name = name.replace("_-_", "-")  # replace "_-_" with dash
@@ -17,11 +38,26 @@ def standardize_col_name(name: str) -> str:
     return name
 
 
-DEFAULT_TRANSFORM = {
-    "float32": "float64",  # Convert float64 columns to float32
-    "int32": "int64",  # Convert int64 columns to int32
-    "category": ["object", "string"],  # Convert object columns (usually strings) to category
-}
+def select_centered_columns(X: pd.DataFrame) -> list[str]:
+    columns = X.select_dtypes(include=np.number).columns
+    # Select columns that have both negative and positive values
+    return [col for col in columns if X[col].min() < 0 and X[col].max() > 0]
+
+
+def select_positive_columns(X: pd.DataFrame) -> list[str]:
+    columns = X.select_dtypes(include=np.number).columns
+    # Select columns where the minimum value is >= 0
+    return [col for col in columns if X[col].min() >= 0]
+
+
+def to_numpy(data: Any) -> np.ndarray:
+    if isinstance(data, (np.ndarray, list, tuple, set)):
+        return np.asarray(data)
+
+    if isinstance(data, (pd.DataFrame, pd.Series)):
+        return data.to_numpy()
+
+    raise NotImplementedError
 
 
 def optimize_dataframe(
@@ -83,30 +119,6 @@ def determine_features_and_targets(df: pd.DataFrame) -> tuple[list[str], list[st
             target_cols.append(column)
             continue
 
-        print(f'Skipped: "{column}"')
+        logger.debug(f'Skipped: "{column}"')
 
     return feature_cols, target_cols
-
-
-class TimeIt:
-    def __init__(self, msg: str):
-        self.msg = msg
-
-    def __enter__(self) -> None:
-        self.start = time.monotonic()
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        self.stop = time.monotonic()
-        print(f"{self.msg}: {self.stop - self.start:.3f}s")
-
-
-def select_positive_columns(X: pd.DataFrame) -> list[str]:
-    columns = X.select_dtypes(include=np.number).columns
-    # Select columns where the minimum value is >= 0
-    return [col for col in columns if X[col].min() >= 0]
-
-
-def select_centered_columns(X: pd.DataFrame) -> list[str]:
-    columns = X.select_dtypes(include=np.number).columns
-    # Select columns that have both negative and positive values
-    return [col for col in columns if X[col].min() < 0 and X[col].max() > 0]
