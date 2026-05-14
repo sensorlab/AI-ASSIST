@@ -1,0 +1,31 @@
+vars:
+  - path:
+      data:
+        raw: data/bus39/raw
+        splits: data/bus39/splits
+        interim: data/bus39/interim
+        reports: data/bus39/reports
+
+      scripts: scripts/bus39
+
+stages:
+  _defaults: &default
+    wdir: ../../
+    cmd: exit 0
+
+  preparation:
+    <<: *default
+    cmd:
+      - mkdir -p ${path.data.interim}
+      - unzip -o ${path.data.raw}/data.zip -d ${path.data.interim}
+      - >
+        nice -n 19
+        python ${path.scripts}/transform.py
+        --in-dir ${path.data.interim}
+        --out-dir ${path.data.interim}
+      - rm ${path.data.interim}/{LF,FSA,TSA,SSSA}_main.csv
+    deps:
+      - ${path.scripts}/transform.py
+      - ${path.data.raw}/data.zip
+    outs:
+      - ${path.data.interim}
