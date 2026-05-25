@@ -17,6 +17,7 @@ dependencies = [
   "fastapi[standard]",
   "pydantic",
   "pydantic-extra-types",
+  "pydantic-settings",
 
   "matplotlib ~=3.10.0",
   "seaborn ~=0.13.2",
@@ -32,10 +33,11 @@ dependencies = [
   "ipywidgets ~=8.1.5",
   "shap ~=0.51.0",
   "networkx ~=3.6.0",
+  "openpyxl",
 
   "ruff",
   "dvc",
-  "qdrant-client[fastembed] ~=1.18.0",
+  "qdrant-client[fastembed] ~=1.17.0",
   "pre-commit",
 ]
 
@@ -46,3 +48,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+
+[tool.uv]
+exclude-newer = "2 weeks"

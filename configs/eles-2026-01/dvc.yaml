@@ -1,0 +1,100 @@
+vars:
+  - path:
+      data:
+        raw: data/eles-2026-01/raw
+        splits: data/eles-2026-01/splits
+        interim: data/eles-2026-01/interim
+        reports: data/eles-2026-01/reports
+
+      scripts: scripts/eles-2026-01
+
+stages:
+  _defaults: &default
+    wdir: ../../
+    cmd: exit 0
+
+  preparation:
+    <<: *default
+    cmd:
+      - mkdir -p ${path.data.interim}
+      - unzip -j ${path.data.raw}/SLOJun2024_Jan2025_only_lne_1h.zip -d ${path.data.interim}
+      - >
+        nice -n 19
+        python ${path.scripts}/transform.py
+        --in-dir ${path.data.interim}
+        --ignore-list ${path.data.raw}/ignorelist.txt
+        --dictionary ${path.data.raw}/powerfactory_dictionary.xlsx
+        --out-dir ${path.data.interim}
+      - rm ${path.data.interim}/*.csv
+    deps:
+      - ${path.scripts}/transform.py
+      - ${path.data.raw}/ignorelist.txt
+      - ${path.data.raw}/SLOJun2024_Jan2025_only_lne_1h.zip
+      - ${path.data.raw}/powerfactory_dictionary.xlsx
+    outs:
+      - ${path.data.interim}
+
+  # benchmark:
+  #   <<: *default
+  #   cmd:
+  #     - mkdir -p ${path.data.reports}
+  #     - >
+  #       nice -n 19
+  #       python ${path.scripts}/benchmark_tsa_eles.py
+  #       --lf-data ${path.data.interim}/lf.pkl
+  #       --tsa-data ${path.data.interim}/tsa.pkl
+  #       --out ${path.data.reports}
+  #   deps:
+  #     - ${path.scripts}/benchmark_tsa_eles.py
+  #     - ${path.data.interim}/lf.pkl
+  #     - ${path.data.interim}/tsa.pkl
+  #   outs:
+  #     - ${path.data.reports}
+
+  # splits:
+  #   <<: *default
+  #   cmd:
+  #     - mkdir -p ${path.data.splits}
+  #     - >
+  #       nice -n 19
+  #       python ${path.scripts}/splits.py
+  #       --in ${path.data.interim}/lf_tsa_merged.pkl
+  #       --out ${path.data.splits}
+  #   deps:
+  #     - ${path.scripts}/splits.py
+  #     - ${path.data.interim}/lf_tsa_merged.pkl
+  #   outs:
+  #     - ${path.data.splits}
+
+  # # benchmark:
+  # #   cmd:
+  # #     - mkdir -p data/results/bus39/
+  # #     - >
+  # #       nice -n 19
+  # #       python ${path.scripts}/benchmark_tsa.py
+  # #       --data ${path.data.interim}/tsa_lf_merged.pkl
+  # #       --splits ${path.data.splits}
+  # #       --out ${path.data.results}
+  # #   deps:
+  # #     - ${path.scripts}/benchmark_tsa.py
+  # #     - ${path.data.interim}/tsa_lf_merged.pkl
+  # #     - ${path.data.splits}
+  # #   outs:
+  # #     - ${path.data.results}
+
+  # benchmark:
+  #   <<: *default
+  #   cmd:
+  #     - mkdir -p ${path.data.reports}
+  #     - >
+  #       nice -n 19
+  #       python ${path.scripts}/benchmark_tsa_v3.py
+  #       --data ${path.data.interim}/lf_tsa_merged.pkl
+  #       --splits ${path.data.splits}
+  #       --out ${path.data.reports}
+  #   deps:
+  #     - ${path.scripts}/benchmark_tsa_v3.py
+  #     - ${path.data.interim}/lf_tsa_merged.pkl
+  #     - ${path.data.splits}
+  #   outs:
+  #     - ${path.data.reports}

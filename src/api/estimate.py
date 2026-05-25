@@ -1,0 +1,46 @@
+from collections.abc import Mapping
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Request, status
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic_extra_types.semantic_version import SemanticVersion
+
+from src.domain.estimation.models import Report
+from src.domain.estimation.service import EstimationService
+
+
+class StateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    variant: SemanticVersion = SemanticVersion.parse("1.0.0")
+    state: Mapping[str, float | None]
+    exclude_uids: frozenset[str] = Field(default_factory=frozenset)
+
+
+class StateResponse(BaseModel):
+    inputs: StateRequest
+    outputs: dict[str, Report]
+
+
+router = APIRouter(prefix="/api/v1", tags=["estimate"])
+
+
+@router.post("/estimate", response_model=StateResponse)
+async def estimate(req: StateRequest, request: Request) -> StateResponse:
+    service: EstimationService = request.app.state.estimation_service
+    try:
+        service.ensure_columns(req.state.keys())
+        outputs = service.estimate(state=req.state, exclude_uids=req.exclude_uids)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    return StateResponse(inputs=req, outputs=outputs)
+
+
+@router.get("/columns")
+async def columns(request: Request) -> dict[str, Any]:
+    service: EstimationService = request.app.state.estimation_service
+    return {
+        "columns": service.columns,
+        "sample_state": dict.fromkeys(service.columns, True),
+    }
