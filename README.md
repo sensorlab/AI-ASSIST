@@ -22,25 +22,54 @@ At this stage, the public analyses focus primarily on the **IEEE 39-bus test cas
 
 ## 🛠️ Setup and Reproducibility
 
-Use the following steps to set up the environment and reproduce the IEEE 39-bus pipeline:
+Use the following steps to set up the environment and reproduce the IEEE 39-bus and ELES pipeline:
 
-1. Install project dependencies and create a virtual environment:
+1. Create a virtual environment:
+
+```bash
+python -m venv .venv
+```
+
+2. Activate the virtual environment:
+
+```bash
+source .venv/bin/activate
+```
+
+3. Create a local environment file:
+
+```bash
+cp .env.example .env
+```
+
+4. Update the variables in `.env` for your environment (API keys, paths, hosts, ports, etc.).
+
+5. Install project dependencies:
 
 ```bash
 # see Makefile
-make install
+pip install -e .
 ```
 
-2. Run the DVC pipeline:
+6. Prepare the dataset in the dataset config directory:
 
 ```bash
+# required flow: config/<dataset>/dvc.yml
+# in this repository, dataset configs are under configs/<dataset>/dvc.yaml
 cd configs/bus39
 dvc repro
 ```
 
+7. Start the service with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
 Pipeline configuration path:
 
-- `configs/bus39/dvc.yaml`
+- `config/<dataset>/dvc.yml` (required flow)
+- `configs/bus39/dvc.yaml` (path used in this repository)
 
 ---
 
