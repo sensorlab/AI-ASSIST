@@ -1,0 +1,31 @@
+# Poslal Škrlec 2026-03-30
+20240707_1715  -  xxxx_main_4.csv, ID = 34;
+20240707_1815  -  xxxx_main_4.csv, ID = 35;
+20240707_1915  -  xxxx_main_4.csv, ID = 36;
+20240707_2015  -  xxxx_main_4.csv, ID = 37;
+20240707_2115  -  xxxx_main_4.csv, ID = 38;
+20240707_2315  -  xxxx_main_4.csv, ID = 39;
+20240729_0715  -  xxxx_main_14.csv, ID = 23;
+20240819_0015  -  xxxx_main_23.csv, ID = 4;
+20240919_0715  -  xxxx_main_32.csv, ID = 40;
+20240930_0915  -  xxxx_main_37.csv, ID = 24;
+20240930_1015  -  xxxx_main_37.csv, ID = 25;
+20240930_1115  -  xxxx_main_37.csv, ID = 26;
+20241001_0915  -  xxxx_main_37.csv, ID = 29;
+20241001_1015  -  xxxx_main_37.csv, ID = 30;
+20241001_1115  -  xxxx_main_37.csv, ID = 31;
+20241001_1215  -  xxxx_main_37.csv, ID = 32;
+20241005_0815  -  xxxx_main_38.csv, ID = 2;
+20241005_0915  -  xxxx_main_38.csv, ID = 3;
+20241005_1015  -  xxxx_main_38.csv, ID = 4;
+20241005_1915  -  xxxx_main_38.csv, ID = 13;
+20241010_2115  -  xxxx_main_40.csv, ID = 25;
+20241025_1815  -  xxxx_main_47.csv, ID = 8;
+20241109_1915  -  xxxx_main_53.csv, ID = 14;
+20241110_1515  -  xxxx_main_53.csv, ID = 24;
+20241115_0815  -  xxxx_main_55.csv, ID = 25;
+20241001_1315  -  xxxx_main_87.csv, ID = 23;
+20241001_1415  -  xxxx_main_87.csv, ID = 24;
+20241001_1515  -  xxxx_main_87.csv, ID = 25;
+
+# Na roko našel Gregor Cerar
