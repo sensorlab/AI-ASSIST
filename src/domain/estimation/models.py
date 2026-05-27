@@ -25,4 +25,5 @@ class ReportNeighbor(BaseModel):
 
 class Report(BaseModel):
     summary: ReportSummary
+    included_state_ids: list[str]
     per_neighbor: list[ReportNeighbor]

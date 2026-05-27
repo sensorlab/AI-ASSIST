@@ -246,6 +246,7 @@ class EstimationService:
 
             # 4) Build per-neighbor payload used by downstream consumers.
             subset["weight"] = qw_norm
+            included_state_ids = list(dict.fromkeys(str(state) for state in subset["state"].dropna()))
             per_neighbor: list[ReportNeighbor] = []
             location_counts: dict[str, int] = {}
             for item in subset[[*self.tsa.columns, "weight"]].to_dict(orient="records"):
@@ -299,6 +300,7 @@ class EstimationService:
                     },
                     location_counts=location_counts,
                 ),
+                included_state_ids=included_state_ids,
                 per_neighbor=sorted(per_neighbor, key=lambda x: x.weight, reverse=True),
             )
         return reports
