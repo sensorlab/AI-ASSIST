@@ -34,6 +34,7 @@ ignore = [
     "E731", # DoNotAssignLambda
     # "S101", # use of assert detected
     "F401", # remove unused imports
+    "E402", # Module level import not at top of file
 ]
 
 unfixable = [

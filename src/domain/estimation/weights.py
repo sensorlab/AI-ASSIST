@@ -2,9 +2,9 @@ import numpy as np
 
 
 def K(distances: np.ndarray, alpha: float = 1.0) -> np.ndarray:
-    # return np.exp(-alpha * distances)
+    return np.exp(-alpha * distances)
     # return 1.0 / (1.0 + distances**2) # t-student
-    return 1.0 / (1.0 + np.abs(distances))
+    # return 1.0 / (1.0 + np.abs(distances))
 
 
 def query_distances(X_query: np.ndarray, X_neighbor: np.ndarray) -> np.ndarray:
