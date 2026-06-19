@@ -285,18 +285,28 @@ $RECYCLE.BIN/
 *.rar
 *.doc
 *.docx
+*.xls
+*.xlsx
 *.csv
 *.gz
 tmp/
 
+*.joblib.*
+*.joblib
+
 # Ignore everything inside data datasets
 data/*/*
 
-# But keep dataset directories themselves
+# But keep dataset directories themselves (one level: data/bus39/, data/eles/)
 !data/*/
 
-# Allow raw directories
-!data/*/raw/
+# Allow nested dataset directories (two levels: data/interscada/pl/, data/interscada/fr/)
+!data/*/*/
 
-# Allow files inside raw
-!data/*/raw/**
+# Allow READMEs at dataset root (both depths)
+!data/*/README.md
+!data/*/*/README.md
+
+# Allow raw directories and their contents (all depths)
+!data/**/raw/
+!data/**/raw/**

@@ -4,6 +4,10 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Final
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import httpx
 import joblib
 import numpy as np
@@ -30,8 +34,8 @@ def _configured_dataset_paths() -> tuple[Path, Path]:
 
 
 LF_PATH, TSA_PATH = _configured_dataset_paths()
-REPORT_PATH: Final[Path] = PROJECT_DIR / "report-2026-05-29.joblib"
-GROUP_K_FOLD_REPORT_PATH: Final[Path] = PROJECT_DIR / "report-service-group-kfold.joblib"
+REPORT_PATH: Final[Path] = PROJECT_DIR / "report-2026-06-19-interscada-pl.joblib"
+GROUP_K_FOLD_REPORT_PATH: Final[Path] = PROJECT_DIR / "report-service-group-kfold-interscada-pl.joblib"
 
 
 API_ENDPOINT: Final[str] = "http://localhost:8000/api/v1/estimate/by-generator"
@@ -149,7 +153,8 @@ def _process_state(
 
 
 def _run_tasks(tasks: list[Any]) -> list[dict[str, Any]]:
-    n_jobs = min(32, max(1, joblib.cpu_count() * 4))
+    # n_jobs = min(32, max(1, joblib.cpu_count() * 4))
+    n_jobs = 8
     reports: list[dict[str, Any]] = []
     n_missing_crit_gen = 0
     n_missing_location = 0

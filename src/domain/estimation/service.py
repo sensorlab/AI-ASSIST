@@ -171,12 +171,156 @@ def make_scaler_bus39() -> Any:
     ).set_output(transform="pandas")
 
 
+def make_scaler_interscada_pl() -> Any:
+    def _sf(transformer, input_features: list[str]) -> np.ndarray:
+        return np.array([f"{c}_scaled" for c in input_features], dtype=object)
+
+    return make_column_transformer(
+        (
+            # voltages: per-unit, range ~0.88–1.11 — pass through as-is
+            make_pipeline(
+                SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
+                FunctionTransformer(lambda X: X, feature_names_out=_sf),
+            ),
+            make_column_selector(pattern=r".*\[pu\]$"),
+        ),
+        (
+            # angles: degrees, range ~-42 to +32
+            make_pipeline(
+                SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
+                AngleSinCos(input_in_degrees=True),
+                VarianceThreshold(threshold=0),
+                FunctionTransformer(lambda X: X * 20, feature_names_out=_sf),
+            ),
+            make_column_selector(pattern=r".*\[deg\]$"),
+        ),
+        (
+            # generator active power: range 50–850 MW
+            make_pipeline(
+                SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
+                VarianceThreshold(threshold=0),
+                FunctionTransformer(lambda X: X / 850, feature_names_out=_sf),
+            ),
+            make_column_selector(pattern=r".*Gen_P_MW"),
+        ),
+        (
+            # generator reactive power: range -142 to +424 Mvar
+            make_pipeline(
+                SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
+                VarianceThreshold(threshold=0),
+                FunctionTransformer(lambda X: X / 450, feature_names_out=_sf),
+            ),
+            make_column_selector(pattern=r".*Gen_Q_mvar"),
+        ),
+        (
+            # load active power: range 0–1911 MW
+            make_pipeline(
+                SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
+                VarianceThreshold(threshold=0),
+                FunctionTransformer(lambda X: X / 2000, feature_names_out=_sf),
+            ),
+            make_column_selector(pattern=r".*Load_P_MW"),
+        ),
+        (
+            # load reactive power: range -134 to +465 Mvar
+            make_pipeline(
+                SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
+                VarianceThreshold(threshold=0),
+                FunctionTransformer(lambda X: X / 500, feature_names_out=_sf),
+            ),
+            make_column_selector(pattern=r".*[Oo]ad_Q_mvar"),
+        ),
+        (
+            # line and generator topology status (0/1)
+            SimpleImputer(strategy="constant", fill_value=1, keep_empty_features=True),
+            make_column_selector(pattern=r".*(?:line_status|gen_status)"),
+        ),
+        remainder="drop",
+        n_jobs=-1,
+        verbose=False,
+        verbose_feature_names_out=False,
+    ).set_output(transform="pandas")
+
+
+def make_scaler_interscada_fr() -> Any:
+    def _sf(transformer, input_features: list[str]) -> np.ndarray:
+        return np.array([f"{c}_scaled" for c in input_features], dtype=object)
+
+    return make_column_transformer(
+        (
+            # voltages: kV, range 380–429 kV
+            make_pipeline(
+                SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
+                VarianceThreshold(threshold=0),
+                FunctionTransformer(lambda X: X / 430, feature_names_out=_sf),
+            ),
+            make_column_selector(pattern=r"^V_"),
+        ),
+        (
+            # angles: degrees, range ~-42 to +62
+            make_pipeline(
+                SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
+                AngleSinCos(input_in_degrees=True),
+                VarianceThreshold(threshold=0),
+                FunctionTransformer(lambda X: X * 20, feature_names_out=_sf),
+            ),
+            make_column_selector(pattern=r"^angle_"),
+        ),
+        (
+            # generator active power: range -1974 to +1224 MW
+            make_pipeline(
+                SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
+                VarianceThreshold(threshold=0),
+                FunctionTransformer(lambda X: X / 2000, feature_names_out=_sf),
+            ),
+            make_column_selector(pattern=r"^Pgen_"),
+        ),
+        (
+            # generator reactive power: range -489 to +944 Mvar
+            make_pipeline(
+                SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
+                VarianceThreshold(threshold=0),
+                FunctionTransformer(lambda X: X / 1000, feature_names_out=_sf),
+            ),
+            make_column_selector(pattern=r"^Qgen_"),
+        ),
+        (
+            # load active power: range -1912 to +2089 MW
+            make_pipeline(
+                SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
+                VarianceThreshold(threshold=0),
+                FunctionTransformer(lambda X: X / 2100, feature_names_out=_sf),
+            ),
+            make_column_selector(pattern=r"^Pload_"),
+        ),
+        (
+            # load reactive power: range -514 to +635 Mvar
+            make_pipeline(
+                SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
+                VarianceThreshold(threshold=0),
+                FunctionTransformer(lambda X: X / 650, feature_names_out=_sf),
+            ),
+            make_column_selector(pattern=r"^Qload_"),
+        ),
+        (
+            # line topology status (0/1); NaN-free but impute for safety
+            SimpleImputer(strategy="constant", fill_value=1, keep_empty_features=True),
+            make_column_selector(pattern=r"^[A-Z][^_]*$"),  # line names e.g. ALBERL71BATHI, no underscore
+        ),
+        remainder="drop",  # drops n_buses and any unrecognised cols
+        n_jobs=-1,
+        verbose=False,
+        verbose_feature_names_out=False,
+    ).set_output(transform="pandas")
+
+
 def _make_scaler_for_dataset(dataset_name: str) -> Any:
     name = dataset_name.strip().lower()
     scaler_by_dataset = {
         "bus39": make_scaler_bus39,
-        "eles-2026-01": make_scaler_eles,
-        "eles": make_scaler_eles,
+        "eles/2026-01": make_scaler_eles,
+        "interscada/pl": make_scaler_interscada_pl,
+        "interscada/fr": make_scaler_interscada_fr,
     }
 
     try:

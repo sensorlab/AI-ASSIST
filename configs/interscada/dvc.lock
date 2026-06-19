@@ -1,0 +1,56 @@
+schema: '2.0'
+stages:
+  preparation_pl:
+    cmd:
+    - mkdir -p data/interscada/pl/interim
+    - "nice -n 19 python scripts/interscada/transform_pl.py --in-dir data/interscada/pl/raw
+      --out-dir data/interscada/pl/interim\n"
+    deps:
+    - path: data/interscada/pl/raw/_CCT_results_names_ok.csv
+      hash: md5
+      md5: 18c5ed94706254fda272bb8c2d0e2b31
+      size: 1773768
+    - path: data/interscada/pl/raw/_power_flow_info_updt.csv
+      hash: md5
+      md5: c23ac8f289290310710ec32ed411b642
+      size: 999153
+    - path: scripts/interscada/transform_pl.py
+      hash: md5
+      md5: 22f85d83810906ae6fbda32c78b340f4
+      size: 5682
+    outs:
+    - path: data/interscada/pl/interim
+      hash: md5
+      md5: f0a01b273b2da8a524ffa464180fb5de.dir
+      size: 89313736
+      nfiles: 4
+  _defaults:
+    cmd: exit 0
+  preparation_fr:
+    cmd:
+    - mkdir -p data/interscada/fr/interim
+    - "nice -n 19 python scripts/interscada/transform_fr.py --in-dir data/interscada/fr/raw
+      --out-dir data/interscada/fr/interim\n"
+    deps:
+    - path: data/interscada/fr/raw/cct_global_results_clean.csv
+      hash: md5
+      md5: 781329fe344b3d59470a7836645f08f5
+      size: 15242
+    - path: data/interscada/fr/raw/line_global_results_clean.csv
+      hash: md5
+      md5: 96cd20e609dd38a29064887bc45c92b9
+      size: 53537
+    - path: data/interscada/fr/raw/static_global_results_clean.csv
+      hash: md5
+      md5: c9929d34d6e5c333b0236dc6804177e6
+      size: 1443274
+    - path: scripts/interscada/transform_fr.py
+      hash: md5
+      md5: 021933fb82e696516ea83d315ee70d53
+      size: 3628
+    outs:
+    - path: data/interscada/fr/interim
+      hash: md5
+      md5: f5d533313c61db5f0d14e5094bcd8189.dir
+      size: 14418692
+      nfiles: 4

@@ -52,3 +52,8 @@ packages = ["src"]
 
 [tool.uv]
 exclude-newer = "2 weeks"
+
+[dependency-groups]
+dev = [
+    "streamlit>=1.58.0",
+]

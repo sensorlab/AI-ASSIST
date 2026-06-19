@@ -1,12 +1,12 @@
 vars:
   - path:
       data:
-        raw: data/eles-2026-01/raw
-        splits: data/eles-2026-01/splits
-        interim: data/eles-2026-01/interim
-        reports: data/eles-2026-01/reports
+        raw: data/eles/2026-01/raw
+        splits: data/eles/2026-01/splits
+        interim: data/eles/2026-01/interim
+        reports: data/eles/2026-01/reports
 
-      scripts: scripts/eles-2026-01
+      scripts: scripts/eles
 
 stages:
   _defaults: &default
