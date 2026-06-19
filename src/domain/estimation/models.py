@@ -26,8 +26,8 @@ class ReportNeighbor(BaseModel):
     state: str
     cct: float
     location: str
-    terminal: str
-    type: str
+    terminal: str | None
+    type: str | None
     weight: float
     distance: float
 
