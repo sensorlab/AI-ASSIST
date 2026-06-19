@@ -1,0 +1,46 @@
+vars:
+  - path:
+      data:
+        splits: data/interscada/splits
+        pl: data/interscada/pl
+        fr: data/interscada/fr
+        reports: data/interscada/reports
+      scripts: scripts/interscada
+
+stages:
+  _defaults: &default
+    wdir: ../../
+    cmd: exit 0
+
+  preparation_pl:
+    <<: *default
+    cmd:
+      - mkdir -p ${path.data.pl}/interim
+      - >
+        nice -n 19
+        python ${path.scripts}/transform_pl.py
+        --in-dir ${path.data.pl}/raw
+        --out-dir ${path.data.pl}/interim
+    deps:
+      - ${path.scripts}/transform_pl.py
+      - ${path.data.pl}/raw/_power_flow_info_updt.csv
+      - ${path.data.pl}/raw/_CCT_results_names_ok.csv
+    outs:
+      - ${path.data.pl}/interim
+
+  preparation_fr:
+    <<: *default
+    cmd:
+      - mkdir -p ${path.data.fr}/interim
+      - >
+        nice -n 19
+        python ${path.scripts}/transform_fr.py
+        --in-dir ${path.data.fr}/raw
+        --out-dir ${path.data.fr}/interim
+    deps:
+      - ${path.scripts}/transform_fr.py
+      - ${path.data.fr}/raw/cct_global_results_clean.csv
+      - ${path.data.fr}/raw/line_global_results_clean.csv
+      - ${path.data.fr}/raw/static_global_results_clean.csv
+    outs:
+      - ${path.data.fr}/interim
