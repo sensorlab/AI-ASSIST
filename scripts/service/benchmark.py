@@ -39,6 +39,9 @@ API_ENDPOINT: Final[str] = "http://localhost:8000/api/v1/estimate/by-generator"
 
 def normalize_label(value: Any) -> str:
     text = str(value).strip().lower()
+    return text
+
+    text = str(value).strip().lower()
     text = re.sub(r"\s+", " ", text)
     try:
         as_float = float(text)
@@ -65,11 +68,12 @@ def _process_state(
     excluded_uids_norm = frozenset(normalize_label(uid) for uid in excluded_uids)
 
     with httpx.Client(timeout=None, http2=True) as client:
+        state_dict = {k: (None if pd.isna(v) else v) for k, v in state.items()}
         res = client.post(
             API_ENDPOINT,
             json={
                 "variant": "1.0.0",
-                "state": state.to_dict(),
+                "state": state_dict,
                 "exclude_uids": sorted(excluded_uids),
             },
         )

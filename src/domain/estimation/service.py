@@ -329,8 +329,8 @@ class EstimationService:
                     state=str(item["state"]),
                     cct=float(item["CCT"]),
                     location=str(item["Location"]),
-                    terminal=str(item["Terminal"]),
-                    type=str(item["Type"]),
+                    terminal=str(item["Terminal"]) if item.get("Terminal") is not None else None,
+                    type=str(item["Type"]) if item.get("Type") is not None else None,
                     weight=float(item["weight"]),
                     distance=float(item["distance"]),
                 )
@@ -517,9 +517,9 @@ def build_estimation_service() -> EstimationService:
     si_topo_cols: Iterable[str] = joblib.load(path_topology_cols)
     feature_map: dict[str, str] = {}
     for col in si_topo_cols:
-        candidates = [c for c in lf_scaled.columns if col in c]
+        candidates = [c for c in lf_scaled.columns if c == col or c.startswith(col + "_")]
         if len(candidates) != 1:
-            raise ValueError(f"cannot map topology col {col}")
+            raise ValueError(f"cannot map topology col {col!r}: found {len(candidates)} candidates {candidates[:5]}")
         feature_map[col] = candidates[0]
 
     client = create_qdrant_client(config)

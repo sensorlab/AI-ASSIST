@@ -37,7 +37,8 @@ class QdrantConfig(BaseSettings):
     def collection_name(self) -> str:
         if self.collection_name_override:
             return self.collection_name_override
-        return f"{self.collection_prefix}_{self.dataset_name}"
+        safe_name = self.dataset_name.replace("/", "-")
+        return f"{self.collection_prefix}_{safe_name}"
 
 
 def get_qdrant_config() -> QdrantConfig:
