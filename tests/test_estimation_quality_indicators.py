@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from src.domain.estimation.models import ReportSummary
+from src.domain.estimation.models import ReportStats, ReportSummary
 from src.domain.estimation.service import (
     _distance_summary,
     _effective_sample_size,
@@ -88,9 +88,7 @@ class NeighborhoodQualityIndicatorTests(unittest.TestCase):
         )
 
     def test_report_summary_accepts_neighborhood_compactness_values_and_none(self):
-        base = {
-            "cct_weighted": 1.0,
-            "cct_weighted_per_location": {"L1": 1.0},
+        stats_base = {
             "location_weight_mass": {"L1": 1.0},
             "n": 1,
             "n_eff": 1.0,
@@ -98,11 +96,19 @@ class NeighborhoodQualityIndicatorTests(unittest.TestCase):
             "location_counts": {"L1": 1},
         }
 
-        with_value = ReportSummary(**base, neighborhood_compactness=0.5)
-        with_none = ReportSummary(**base, neighborhood_compactness=None)
+        with_value = ReportSummary(
+            cct_weighted=1.0,
+            cct_weighted_per_location={"L1": 1.0},
+            stats=ReportStats(**stats_base, neighborhood_compactness=0.5),
+        )
+        with_none = ReportSummary(
+            cct_weighted=1.0,
+            cct_weighted_per_location={"L1": 1.0},
+            stats=ReportStats(**stats_base, neighborhood_compactness=None),
+        )
 
-        self.assertEqual(with_value.neighborhood_compactness, 0.5)
-        self.assertIsNone(with_none.neighborhood_compactness)
+        self.assertEqual(with_value.stats.neighborhood_compactness, 0.5)
+        self.assertIsNone(with_none.stats.neighborhood_compactness)
 
 
 if __name__ == "__main__":

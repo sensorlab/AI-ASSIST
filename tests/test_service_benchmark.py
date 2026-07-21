@@ -21,18 +21,20 @@ def _response_json(*, included_state_ids: list[str] | None = None) -> str:
                     "summary": {
                         "cct_weighted": 2.0,
                         "cct_weighted_per_location": {"l1": 1.5},
-                        "location_weight_mass": {"l1": 1.0},
-                        "neighborhood_compactness": 1.0,
-                        "n": 1,
-                        "n_eff": 1.0,
-                        "distances": {
-                            "min": 0.1,
-                            "mean": 0.1,
-                            "median": 0.1,
-                            "spread": 0.0,
-                            "norm": 1.0,
+                        "stats": {
+                            "location_weight_mass": {"l1": 1.0},
+                            "neighborhood_compactness": 1.0,
+                            "n": 1,
+                            "n_eff": 1.0,
+                            "distances": {
+                                "min": 0.1,
+                                "mean": 0.1,
+                                "median": 0.1,
+                                "spread": 0.0,
+                                "norm": 1.0,
+                            },
+                            "location_counts": {"l1": 1},
                         },
-                        "location_counts": {"l1": 1},
                     },
                     "included_state_ids": included_state_ids or [],
                     "per_neighbor": [],
@@ -108,7 +110,7 @@ class ServiceBenchmarkTests(unittest.TestCase):
                 fold=2,
             )
 
-        self.assertEqual(requests[0]["endpoint"], "http://localhost:8000/api/v1/estimate/by-generator")
+        self.assertEqual(requests[0]["endpoint"], "http://localhost:8000/api/v1/estimate/tsa/by-generator")
         self.assertEqual(requests[0]["json"]["exclude_uids"], ["s1", "s2", "s3"])
         self.assertEqual(reports[0]["fold"], 2)
 

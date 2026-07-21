@@ -1,5 +1,7 @@
 import argparse
+import logging
 import re
+import sqlite3
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Final
@@ -17,9 +19,12 @@ from tqdm.auto import tqdm
 
 from src.api.estimate import StateResponse
 from src.benchmarking import group_k_fold_test_groups, regression_metrics, summarize_results
+from src.config.logging import configure_logging
 from src.config.settings import get_app_settings
 from src.domain.estimation.service import _dataset_paths
 from src.services.qdrant.config import get_qdrant_config
+
+logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 
@@ -38,7 +43,7 @@ REPORT_PATH: Final[Path] = PROJECT_DIR / "report-2026-06-19-interscada-pl.joblib
 GROUP_K_FOLD_REPORT_PATH: Final[Path] = PROJECT_DIR / "report-service-group-kfold-interscada-pl.joblib"
 
 
-API_ENDPOINT: Final[str] = "http://localhost:8000/api/v1/estimate/by-generator"
+API_ENDPOINT: Final[str] = "http://localhost:8000/api/v1/estimate/tsa/by-generator"
 
 
 def normalize_label(value: Any) -> str:
@@ -105,21 +110,20 @@ def _process_state(
             raise RuntimeError(f"Data leakage: excluded states `{leaked_uids}` found in `{pred.included_state_ids=}`")
 
         summary = pred.summary if pred is not None else None
-        distances = summary.distances if summary is not None else {}
+        stats = summary.stats if summary is not None else None
+        distances = stats.distances if stats is not None else {}
         cct_by_location = (
             {normalize_label(key): value for key, value in summary.cct_weighted_per_location.items()}
             if summary is not None
             else {}
         )
         location_weight_mass = (
-            {normalize_label(key): value for key, value in summary.location_weight_mass.items()}
-            if summary is not None
+            {normalize_label(key): value for key, value in stats.location_weight_mass.items()}
+            if stats is not None
             else {}
         )
         location_counts = (
-            {normalize_label(key): value for key, value in summary.location_counts.items()}
-            if summary is not None
-            else {}
+            {normalize_label(key): value for key, value in stats.location_counts.items()} if stats is not None else {}
         )
 
         cct_weighted_per_location = cct_by_location.get(location_true)
@@ -136,9 +140,9 @@ def _process_state(
             "has_location_prediction": cct_weighted_per_location is not None,
             "location_weight_mass": location_weight_mass.get(location_true),
             "location_neighbor_count": location_counts.get(location_true, 0),
-            "n_neighbors": summary.n if summary is not None else 0,
-            "n_eff": summary.n_eff if summary is not None else None,
-            "neighborhood_compactness": (summary.neighborhood_compactness if summary is not None else None),
+            "n_neighbors": stats.n if stats is not None else 0,
+            "n_eff": stats.n_eff if stats is not None else None,
+            "neighborhood_compactness": (stats.neighborhood_compactness if stats is not None else None),
             "distance_min": distances.get("min"),
             "distance_mean": distances.get("mean"),
             "distance_median": distances.get("median"),
@@ -171,7 +175,7 @@ def _run_tasks(tasks: list[Any]) -> list[dict[str, Any]]:
         n_missing_crit_gen += sum(0 if row.get("has_crit_gen_prediction") else 1 for row in chunk)
         n_missing_location += sum(0 if row.get("has_location_prediction") else 1 for row in chunk)
 
-    print(
+    logger.info(
         "Coverage diagnostics: "
         f"total_rows={len(reports)}, "
         f"missing_crit_gen={n_missing_crit_gen}, "
@@ -188,7 +192,7 @@ def analyzer(lf: pd.DataFrame, tsa: pd.DataFrame) -> list[dict[str, Any]]:
     for state_id, state in lf.iterrows():
         tsa_subset = tsa[tsa.state == state_id].copy()
         if tsa_subset.empty:
-            print(f"Skipped: {state_id=} has no samples")
+            logger.warning(f"Skipped: {state_id=} has no samples")
             continue
 
         tasks.append(delayed(_process_state)(state_id=state_id, state=state, tsa_subset=tsa_subset))
@@ -214,7 +218,7 @@ def analyze_group_k_fold(
 
             tsa_subset = tsa_by_state.get(state_uid)
             if tsa_subset is None or tsa_subset.empty:
-                print(f"Skipped: {state_id=} has no samples")
+                logger.warning(f"Skipped: {state_id=} has no samples")
                 continue
 
             tasks.append(
@@ -280,10 +284,12 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    configure_logging()
     args = _parse_args()
-    print(f"Benchmark dataset: lf={LF_PATH}, tsa={TSA_PATH}")
+    logger.info(f"Benchmark dataset: lf={LF_PATH}, tsa={TSA_PATH}")
     lf = pd.read_pickle(LF_PATH)
-    tsa = pd.read_pickle(TSA_PATH)
+    with sqlite3.connect(TSA_PATH) as conn:
+        tsa = pd.read_sql_query("SELECT * FROM tsa", conn)
 
     if args.split == "leave-one-group-out":
         output = analyzer(lf=lf, tsa=tsa)
@@ -294,7 +300,7 @@ def main() -> None:
         report_path = GROUP_K_FOLD_REPORT_PATH
 
     joblib.dump(output, report_path)
-    print(f"Saved report to {report_path}")
+    logger.info(f"Saved report to {report_path}")
 
 
 if __name__ == "__main__":

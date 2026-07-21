@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import sqlite3
 from pathlib import Path
 from typing import Any, Final
 
@@ -27,9 +29,12 @@ from src.benchmarking import (
     regression_metrics,
     summarize_results,
 )
+from src.config.logging import configure_logging
 from src.config.settings import get_app_settings
 from src.domain.estimation.service import _dataset_paths, _make_scaler_for_dataset
 from src.services.qdrant.config import get_qdrant_config
+
+logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 REPORT_PATH: Final[Path] = PROJECT_DIR / "report-ml-regression-2026-05-29.joblib"
@@ -246,22 +251,22 @@ def run_group_cv(
 
 
 def main() -> None:
+    configure_logging()
     lf_path, tsa_path = _configured_dataset_paths()
 
-    print(f"Benchmark dataset: lf={lf_path}, tsa={tsa_path}")
+    logger.info(f"Benchmark dataset: lf={lf_path}, tsa={tsa_path}")
     lf = pd.read_pickle(lf_path)
-    tsa = pd.read_pickle(tsa_path)
+    with sqlite3.connect(tsa_path) as conn:
+        tsa = pd.read_sql_query("SELECT * FROM tsa", conn)
 
     scaler = _make_scaler_for_dataset(get_qdrant_config().dataset_name)
 
     X, y, groups = build_record_table(lf, tsa, scaler=scaler)
 
-    print(f"Records: {len(X):,}")
-    print(f"States/groups: {groups.nunique():,}")
-    print(f"Features: {X.shape[1]:,}")
-    print(f"CCT mean: {y.mean():.3f}")
-    print(f"CCT median: {y.median():.3f}")
-    print(f"CCT min/max: {y.min():.3f} / {y.max():.3f}")
+    logger.info(
+        f"Records: {len(X):,}; States/groups: {groups.nunique():,}; Features: {X.shape[1]:,}; "
+        f"CCT mean: {y.mean():.3f}; CCT median: {y.median():.3f}; CCT min/max: {y.min():.3f} / {y.max():.3f}"
+    )
 
     results = run_group_cv(X, y, groups, n_splits=5)
     summary = summarize_results(results)
@@ -283,7 +288,7 @@ def main() -> None:
     }
 
     joblib.dump(payload, REPORT_PATH)
-    print(f"\nSaved report to {REPORT_PATH}")
+    logger.info(f"Saved report to {REPORT_PATH}")
 
 
 if __name__ == "__main__":
