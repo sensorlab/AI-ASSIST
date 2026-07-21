@@ -1,8 +1,8 @@
+import json
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, cast
 
-import joblib
 import numpy as np
 import pandas as pd
 from scipy.spatial.distance import pdist
@@ -14,17 +14,24 @@ from sklearn.preprocessing import FunctionTransformer
 
 from src.config.settings import get_app_settings
 from src.domain.estimation.models import (
+    FsaReport,
+    FsaReportNeighbor,
+    FsaReportSummary,
     LocationReport,
+    LocationReportStats,
     LocationReportSummary,
     Report,
     ReportNeighbor,
+    ReportStats,
     ReportSummary,
+    Stats,
 )
 from src.domain.estimation.weights import K, query_distances
 from src.preprocessing import AngleSinCos
 from src.services.qdrant.client import create_qdrant_client
 from src.services.qdrant.config import get_qdrant_config
 from src.services.qdrant.repository import DatabaseQdrant, QueryResult
+from src.services.sqlite_store import SqliteRecordStore
 
 
 def _resolve_dataset_file(base_dir: Path, base_name: str) -> Path:
@@ -41,13 +48,33 @@ def _resolve_dataset_file(base_dir: Path, base_name: str) -> Path:
     )
 
 
+def _resolve_optional_dataset_file(base_dir: Path, base_name: str) -> Path | None:
+    """Like _resolve_dataset_file, but for artifacts not every dataset has (e.g. fsa.pkl,
+    sssa.pkl) - returns None instead of raising when absent."""
+    try:
+        return _resolve_dataset_file(base_dir, base_name)
+    except FileNotFoundError:
+        return None
+
+
 def _dataset_paths(data_dir: Path, dataset_name: str) -> tuple[Path, Path, Path]:
-    base = data_dir / dataset_name / "interim"
+    # lf.pkl is an interim, analyst-facing artifact (also the bulk input used once at startup
+    # to fit the scaler and populate Qdrant); tsa/topology_cols live under processed/ as the
+    # formats EstimationService actually reads per request/at startup (indexed SQLite for tsa,
+    # plain JSON for topology_cols - joblib copies of both still exist under interim/ for
+    # analyst/notebook use).
+    interim = data_dir / dataset_name / "interim"
+    processed = data_dir / dataset_name / "processed"
     return (
-        _resolve_dataset_file(base, "lf.pkl"),
-        _resolve_dataset_file(base, "tsa.pkl"),
-        _resolve_dataset_file(base, "topology_cols.joblib"),
+        _resolve_dataset_file(interim, "lf.pkl"),
+        _resolve_dataset_file(processed, "tsa"),
+        _resolve_dataset_file(processed, "topology_cols"),
     )
+
+
+def _fsa_dataset_path(data_dir: Path, dataset_name: str) -> Path | None:
+    processed = data_dir / dataset_name / "processed"
+    return _resolve_optional_dataset_file(processed, "fsa")
 
 
 def make_scaler_eles() -> Any:
@@ -319,6 +346,7 @@ def _make_scaler_for_dataset(dataset_name: str) -> Any:
     scaler_by_dataset = {
         "bus39": make_scaler_bus39,
         "eles/2026-01": make_scaler_eles,
+        "eles/2026-06": make_scaler_eles,
         "interscada/pl": make_scaler_interscada_pl,
         "interscada/fr": make_scaler_interscada_fr,
     }
@@ -415,11 +443,21 @@ def _neighborhood_compactness(X_neighbors: np.ndarray, *, crit_gen: str) -> floa
 
 
 class EstimationService:
-    def __init__(self, columns: list[str], scaler: Any, tsa: pd.DataFrame, db: DatabaseQdrant):
+    def __init__(
+        self,
+        columns: list[str],
+        scaler: Any,
+        tsa: SqliteRecordStore,
+        db: DatabaseQdrant,
+        fsa: SqliteRecordStore | None = None,
+    ):
         self.columns = columns
         self.scaler = scaler
         self.tsa = tsa
         self.db = db
+        # Not every dataset has FSA (frequency stability) data - None here means the active
+        # dataset doesn't support it; estimate_by_contingency() raises NotImplementedError.
+        self.fsa = fsa
 
     def ensure_columns(self, request_cols: Iterable[str]) -> None:
         inputs_cols = set(self.columns)
@@ -429,21 +467,42 @@ class EstimationService:
             missing_cols = request_cols - inputs_cols
             raise ValueError(f"invalid_fields={list(invalid_cols)}, missing_fields={list(missing_cols)}")
 
-    def _query_enriched_neighbors(
+    def _query_neighbors(
         self,
         state: Mapping[str, float | None],
         exclude_uids: Iterable[str],
+        n_neighbors: int | None = None,
     ) -> tuple[pd.DataFrame, list[str], np.ndarray]:
-        # Normalize incoming state into the same scaled feature space used by the index.
+        """Scale the query state and retrieve nearest neighbors from Qdrant. Returns the
+        raw LF neighbor rows (not yet merged with any target dataset), the embedding
+        columns, and the query's own embedding vector. Shared by every estimate_* method -
+        each merges the result with whichever target dataset (tsa/fsa) it needs.
+        n_neighbors defaults to DatabaseQdrant.default_limit when not given."""
         sample = pd.DataFrame([state]).astype(np.float64)
         sample = self.scaler.transform(sample)
         sample = cast(pd.DataFrame, sample)
 
-        # Retrieve nearest neighbors from Qdrant and enrich them with TSA metadata.
-        results = self.db.query(state=sample, exclude_source_index=exclude_uids)
+        results = self.db.query(state=sample, limit=n_neighbors, exclude_source_index=exclude_uids)
         assert isinstance(results, QueryResult)
 
-        lf_tsa = results.rows.merge(self.tsa, how="left", left_index=True, right_on="state")
+        embed_cols = self.db.embed_cols
+        if embed_cols is None:
+            raise RuntimeError("Qdrant database is not fitted")
+
+        X_query = sample[embed_cols].to_numpy(dtype=np.float64)
+        return results.rows, embed_cols, X_query
+
+    def _query_enriched_neighbors(
+        self,
+        state: Mapping[str, float | None],
+        exclude_uids: Iterable[str],
+        n_neighbors: int | None = None,
+    ) -> tuple[pd.DataFrame, list[str], np.ndarray]:
+        # Retrieve nearest neighbors from Qdrant and enrich them with TSA metadata.
+        rows, embed_cols, X_query = self._query_neighbors(state, exclude_uids, n_neighbors)
+
+        tsa_subset = self.tsa.fetch(rows.index)
+        lf_tsa = rows.merge(tsa_subset, how="left", left_index=True, right_on="state")
         if lf_tsa.empty:
             return lf_tsa, [], np.empty((1, 0), dtype=np.float64)
 
@@ -458,12 +517,54 @@ class EstimationService:
                 f"{missing_states[:10]}" + ("..." if len(missing_states) > 10 else "")
             )
 
-        embed_cols = self.db.embed_cols
-        if embed_cols is None:
-            raise RuntimeError("Qdrant database is not fitted")
-
-        X_query = sample[embed_cols].to_numpy(dtype=np.float64)
         return lf_tsa, embed_cols, X_query
+
+    def _query_enriched_fsa_neighbors(
+        self,
+        state: Mapping[str, float | None],
+        exclude_uids: Iterable[str],
+        n_neighbors: int | None = None,
+    ) -> tuple[pd.DataFrame, list[str], np.ndarray]:
+        """FSA analog of _query_enriched_neighbors. Unlike TSA (where every retrieved state
+        must have a TSA record), a retrieved state legitimately may have no FSA coverage at
+        all - some (failed_gen, measured_gen) pairs have no result for every state, and a
+        given state may lack all of them. An inner join silently excludes such states rather
+        than treating that as an error."""
+        if self.fsa is None:
+            raise NotImplementedError("This dataset does not provide FSA (frequency stability) data")
+
+        rows, embed_cols, X_query = self._query_neighbors(state, exclude_uids, n_neighbors)
+
+        fsa_subset = self.fsa.fetch(rows.index)
+        lf_fsa = rows.merge(fsa_subset, how="inner", left_index=True, right_on="state")
+        if lf_fsa.empty:
+            return lf_fsa, [], np.empty((1, 0), dtype=np.float64)
+
+        return lf_fsa, embed_cols, X_query
+
+    def _weight_group(
+        self,
+        subset: pd.DataFrame,
+        embed_cols: list[str],
+        X_query: np.ndarray,
+        *,
+        group_name: str,
+    ) -> tuple[pd.DataFrame, np.ndarray, float | None]:
+        """Compute normalized query-distance weights and neighborhood compactness for one
+        group, writing 'weight'/'distance' columns onto a copy of subset. Shared by every
+        estimate_* method's per-group loop (estimate_by_location re-normalizes these within
+        a tighter sub-group afterward rather than recomputing from scratch)."""
+        subset = subset.copy()
+        X_neighbors = subset[embed_cols].to_numpy(dtype=np.float64)
+        _ensure_finite("X_neighbors", X_neighbors, crit_gen=group_name)
+
+        qds = query_distances(X_query=X_query, X_neighbor=X_neighbors)
+        qw_norm = _normalized_weights(qds, crit_gen=group_name)
+        compactness = _neighborhood_compactness(X_neighbors, crit_gen=group_name)
+
+        subset["weight"] = qw_norm
+        subset["distance"] = qds
+        return subset, qw_norm, compactness
 
     def _build_per_neighbor(self, subset: pd.DataFrame) -> list[ReportNeighbor]:
         per_neighbor: list[ReportNeighbor] = []
@@ -496,24 +597,12 @@ class EstimationService:
 
         for crit_gen_value, subset in lf_tsa.groupby(by="Crit_gen", dropna=False):
             crit_gen = str(crit_gen_value)
-            subset = subset.copy()
-
+            subset, qw_norm, compactness = self._weight_group(subset, embed_cols, X_query, group_name=crit_gen)
             cct_neighbors = subset["CCT"].to_numpy(dtype=np.float64)
             X_neighbors = subset[embed_cols].to_numpy(dtype=np.float64)
-
+            qds = subset["distance"].to_numpy(dtype=np.float64)
             _ensure_finite("cct_neighbors", cct_neighbors, crit_gen=crit_gen)
-            _ensure_finite("X_neighbors", X_neighbors, crit_gen=crit_gen)
 
-            # Query-to-record distances define record influence for this query sample.
-            qds = query_distances(X_query=X_query, X_neighbor=X_neighbors)
-            # Global normalization across all simulation records in this Crit_gen subset.
-            qw_norm = _normalized_weights(qds, crit_gen=crit_gen)
-
-            # Normalized pairwise compactness within this Crit_gen group.
-            compactness = _neighborhood_compactness(X_neighbors, crit_gen=crit_gen)
-
-            subset["weight"] = qw_norm
-            subset["distance"] = qds
             weighted_subsets.append(subset)
 
             location_counts: dict[str, int] = {}
@@ -545,14 +634,16 @@ class EstimationService:
                 summary=ReportSummary(
                     cct_weighted=float(np.sum(qw_norm * cct_neighbors)),
                     cct_weighted_per_location=weighted_cct_per_location,
-                    location_weight_mass=location_weight_mass,
-                    neighborhood_compactness=compactness,
-                    n=int(X_neighbors.shape[0]),
-                    # Effective number of contributing simulation records in this Crit_gen group,
-                    # not the number of unique pre-fault states.
-                    n_eff=_effective_sample_size(qw_norm),
-                    distances=_distance_summary(qds),
-                    location_counts=location_counts,
+                    stats=ReportStats(
+                        location_weight_mass=location_weight_mass,
+                        neighborhood_compactness=compactness,
+                        n=int(X_neighbors.shape[0]),
+                        # Effective number of contributing simulation records in this Crit_gen
+                        # group, not the number of unique pre-fault states.
+                        n_eff=_effective_sample_size(qw_norm),
+                        distances=_distance_summary(qds),
+                        location_counts=location_counts,
+                    ),
                 ),
                 included_state_ids=self._included_state_ids(subset),
                 per_neighbor=self._build_per_neighbor(subset),
@@ -567,10 +658,12 @@ class EstimationService:
         self,
         state: Mapping[str, float | None],
         exclude_uids: Iterable[str],
+        n_neighbors: int | None = None,
     ) -> dict[str, Report]:
         lf_tsa, embed_cols, X_query = self._query_enriched_neighbors(
             state=state,
             exclude_uids=exclude_uids,
+            n_neighbors=n_neighbors,
         )
         if lf_tsa.empty:
             return {}
@@ -582,10 +675,12 @@ class EstimationService:
         self,
         state: Mapping[str, float | None],
         exclude_uids: Iterable[str],
+        n_neighbors: int | None = None,
     ) -> dict[str, dict[str, LocationReport]]:
         lf_tsa, embed_cols, X_query = self._query_enriched_neighbors(
             state=state,
             exclude_uids=exclude_uids,
+            n_neighbors=n_neighbors,
         )
         if lf_tsa.empty:
             return {}
@@ -626,14 +721,16 @@ class EstimationService:
             reports.setdefault(location, {})[crit_gen] = LocationReport(
                 summary=LocationReportSummary(
                     cct_weighted=cct_weighted,
-                    weight_mass=weight_mass,
-                    neighborhood_compactness=_neighborhood_compactness(
-                        X_neighbors,
-                        crit_gen=group_name,
+                    stats=LocationReportStats(
+                        weight_mass=weight_mass,
+                        neighborhood_compactness=_neighborhood_compactness(
+                            X_neighbors,
+                            crit_gen=group_name,
+                        ),
+                        n=int(X_neighbors.shape[0]),
+                        n_eff=_effective_sample_size(qw_norm),
+                        distances=_distance_summary(qds),
                     ),
-                    n=int(X_neighbors.shape[0]),
-                    n_eff=_effective_sample_size(qw_norm),
-                    distances=_distance_summary(qds),
                 ),
                 included_state_ids=self._included_state_ids(subset),
                 per_neighbor=self._build_per_neighbor(subset),
@@ -641,24 +738,137 @@ class EstimationService:
 
         return reports
 
-    def estimate(self, state: Mapping[str, float | None], exclude_uids: Iterable[str]) -> dict[str, Report]:
-        return self.estimate_by_generator(state=state, exclude_uids=exclude_uids)
+    def _fsa_metric_cols(self) -> list[str]:
+        assert self.fsa is not None
+        return [c for c in self.fsa.columns if c not in ("state", "failed_gen", "measured_gen")]
+
+    def _build_fsa_per_neighbor(self, subset: pd.DataFrame, metric_cols: list[str]) -> list[FsaReportNeighbor]:
+        per_neighbor: list[FsaReportNeighbor] = []
+        for item in subset[["state", *metric_cols, "weight", "distance"]].to_dict(orient="records"):
+            per_neighbor.append(
+                FsaReportNeighbor(
+                    state=str(item["state"]),
+                    metrics={m: float(item[m]) for m in metric_cols},
+                    weight=float(item["weight"]),
+                    distance=float(item["distance"]),
+                )
+            )
+        return sorted(per_neighbor, key=lambda x: x.weight, reverse=True)
+
+    def _fsa_reports_by_pair(
+        self,
+        lf_fsa: pd.DataFrame,
+        embed_cols: list[str],
+        X_query: np.ndarray,
+    ) -> dict[tuple[str, str], FsaReport]:
+        """Compute one FsaReport per (failed_gen, measured_gen) pair - the shared
+        computation behind both estimate_by_observed_generator and
+        estimate_by_failed_generator, which just re-nest this same flat result differently."""
+        metric_cols = self._fsa_metric_cols()
+        reports: dict[tuple[str, str], FsaReport] = {}
+
+        for (failed_gen_value, measured_gen_value), subset in lf_fsa.groupby(
+            by=["failed_gen", "measured_gen"],
+            dropna=False,
+        ):
+            failed_gen = str(failed_gen_value)
+            measured_gen = str(measured_gen_value)
+            group_name = f"{failed_gen}/{measured_gen}"
+
+            subset, qw_norm, compactness = self._weight_group(subset, embed_cols, X_query, group_name=group_name)
+            qds = subset["distance"].to_numpy(dtype=np.float64)
+
+            metrics_weighted: dict[str, float] = {}
+            for metric in metric_cols:
+                values = subset[metric].to_numpy(dtype=np.float64)
+                _ensure_finite(f"fsa_{metric}", values, crit_gen=group_name)
+                metrics_weighted[metric] = float(np.sum(qw_norm * values))
+
+            reports[(failed_gen, measured_gen)] = FsaReport(
+                summary=FsaReportSummary(
+                    metrics_weighted=metrics_weighted,
+                    stats=Stats(
+                        neighborhood_compactness=compactness,
+                        n=int(len(subset)),
+                        n_eff=_effective_sample_size(qw_norm),
+                        distances=_distance_summary(qds),
+                    ),
+                ),
+                included_state_ids=self._included_state_ids(subset),
+                per_neighbor=self._build_fsa_per_neighbor(subset, metric_cols),
+            )
+
+        return reports
+
+    def estimate_by_observed_generator(
+        self,
+        state: Mapping[str, float | None],
+        exclude_uids: Iterable[str],
+        n_neighbors: int | None = None,
+    ) -> dict[str, dict[str, FsaReport]]:
+        """Primary FSA view: for each observed/measured generator, the frequency-stability
+        outcome per failed generator - the FSA analog of estimate_by_generator. Raises
+        NotImplementedError (mapped to HTTP 501 at the API layer) if the active dataset has
+        no FSA data."""
+        lf_fsa, embed_cols, X_query = self._query_enriched_fsa_neighbors(
+            state=state, exclude_uids=exclude_uids, n_neighbors=n_neighbors
+        )
+        if lf_fsa.empty:
+            return {}
+
+        reports: dict[str, dict[str, FsaReport]] = {}
+        for (failed_gen, measured_gen), report in self._fsa_reports_by_pair(lf_fsa, embed_cols, X_query).items():
+            reports.setdefault(measured_gen, {})[failed_gen] = report
+        return reports
+
+    def estimate_by_failed_generator(
+        self,
+        state: Mapping[str, float | None],
+        exclude_uids: Iterable[str],
+        n_neighbors: int | None = None,
+    ) -> dict[str, dict[str, FsaReport]]:
+        """Secondary FSA view: for each failed generator, the frequency-stability outcome
+        per observed/measured generator - the FSA analog of estimate_by_location. Raises
+        NotImplementedError (mapped to HTTP 501 at the API layer) if the active dataset has
+        no FSA data."""
+        lf_fsa, embed_cols, X_query = self._query_enriched_fsa_neighbors(
+            state=state, exclude_uids=exclude_uids, n_neighbors=n_neighbors
+        )
+        if lf_fsa.empty:
+            return {}
+
+        reports: dict[str, dict[str, FsaReport]] = {}
+        for (failed_gen, measured_gen), report in self._fsa_reports_by_pair(lf_fsa, embed_cols, X_query).items():
+            reports.setdefault(failed_gen, {})[measured_gen] = report
+        return reports
+
+    def estimate(
+        self,
+        state: Mapping[str, float | None],
+        exclude_uids: Iterable[str],
+        n_neighbors: int | None = None,
+    ) -> dict[str, Report]:
+        return self.estimate_by_generator(state=state, exclude_uids=exclude_uids, n_neighbors=n_neighbors)
 
 
 def build_estimation_service() -> EstimationService:
     config = get_qdrant_config()
     app_settings = get_app_settings()
     path_lf_dataset, path_tsa_dataset, path_topology_cols = _dataset_paths(app_settings.data_dir, config.dataset_name)
+    path_fsa_dataset = _fsa_dataset_path(app_settings.data_dir, config.dataset_name)
     use_population_lock = config.url.strip().lower() != ":memory:"
 
     lf: pd.DataFrame = pd.read_pickle(path_lf_dataset)
-    tsa: pd.DataFrame = pd.read_pickle(path_tsa_dataset)
-    tsa["state"] = tsa["state"].astype("str")
+    tsa = SqliteRecordStore(path_tsa_dataset, table="tsa")
+
+    fsa: SqliteRecordStore | None = None
+    if path_fsa_dataset is not None:
+        fsa = SqliteRecordStore(path_fsa_dataset, table="fsa")
 
     scaler: Any = _make_scaler_for_dataset(config.dataset_name)
     lf_scaled = cast(pd.DataFrame, scaler.fit_transform(lf))
 
-    si_topo_cols: Iterable[str] = joblib.load(path_topology_cols)
+    si_topo_cols: Iterable[str] = json.loads(path_topology_cols.read_text())
     feature_map: dict[str, str] = {}
     for col in si_topo_cols:
         candidates = [c for c in lf_scaled.columns if c == col or c.startswith(col + "_")]
@@ -677,4 +887,4 @@ def build_estimation_service() -> EstimationService:
     )
     db.fit(lf_scaled, force=False)
 
-    return EstimationService(columns=list(lf.columns), scaler=scaler, tsa=tsa, db=db)
+    return EstimationService(columns=list(lf.columns), scaler=scaler, tsa=tsa, db=db, fsa=fsa)

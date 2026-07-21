@@ -1,4 +1,5 @@
 import argparse
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -14,12 +15,15 @@ import httpx
 import pandas as pd
 from tqdm.auto import tqdm
 
+from src.config.logging import configure_logging
 from src.config.settings import get_app_settings
 from src.domain.estimation.service import _dataset_paths
 from src.services.qdrant.config import get_qdrant_config
 
+logger = logging.getLogger(__name__)
+
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
-API_ENDPOINT: Final[str] = "http://localhost:8000/api/v1/estimate/by-generator"
+API_ENDPOINT: Final[str] = "http://localhost:8000/api/v1/estimate/tsa/by-generator"
 
 
 @dataclass(frozen=True)
@@ -177,12 +181,13 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    configure_logging()
     args = _parse_args()
     lf_path = _configured_lf_path()
 
-    print(f"Latency benchmark dataset: lf={lf_path}")
-    print(f"Endpoint: {args.endpoint}")
-    print(f"Samples: first {args.n_samples}; concurrency={args.concurrency}")
+    logger.info(f"Latency benchmark dataset: lf={lf_path}")
+    logger.info(f"Endpoint: {args.endpoint}")
+    logger.info(f"Samples: first {args.n_samples}; concurrency={args.concurrency}")
 
     lf = pd.read_pickle(lf_path)
 
