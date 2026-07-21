@@ -11,11 +11,11 @@ services:
       - .env
     environment:
       QDRANT_URL: qdrant-server
-      DATA_DIR: /app/data
+      DATA_DIR: /app/datasets
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/app/data:ro
+      - ./datasets:/app/datasets:ro
 
   qdrant-server:
     image: qdrant/qdrant:v1.18-unprivileged

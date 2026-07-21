@@ -24,7 +24,7 @@ class TimeIt:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.stop = time.perf_counter()
-        print(f"{self.msg}: {self.stop - self.start:.3f}s")
+        logger.info(f"{self.msg}: {self.stop - self.start:.3f}s")
 
 
 def standardize_col_name(name: str) -> str:
@@ -71,8 +71,7 @@ def optimize_dataframe(
             try:
                 df[col] = df[col].astype(astype, errors="raise")
             except Exception as e:
-                print(f"Error casting dtypes from '{col}' to {astype} type.\n{e}")
-                pass
+                logger.warning(f"Error casting dtypes from '{col}' to {astype} type: {e}")
 
         # affected_cols = df.select_dtypes(include=include).columns
         # df[affected_cols] = df[affected_cols].astype(astype)
