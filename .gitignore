@@ -294,19 +294,28 @@ tmp/
 *.joblib.*
 *.joblib
 
-# Ignore everything inside data datasets
-data/*/*
+*.db
 
-# But keep dataset directories themselves (one level: data/bus39/, data/eles/)
-!data/*/
+# Ignore everything inside dataset directories (each holds raw/interim data plus its
+# own prepare.py/transform.py under datasets/<name>/ or datasets/<name>/<version>/)
+datasets/*/*
 
-# Allow nested dataset directories (two levels: data/interscada/pl/, data/interscada/fr/)
-!data/*/*/
+# But keep dataset directories themselves (one level: datasets/bus39/)
+!datasets/*/
 
-# Allow READMEs at dataset root (both depths)
-!data/*/README.md
-!data/*/*/README.md
+# Allow nested dataset directories (two levels: datasets/interscada/pl/, datasets/eles/2026-01/)
+!datasets/*/*/
+
+# Allow prepare.py/transform.py and READMEs at any depth
+!datasets/**/*.py
+!datasets/**/README.md
 
 # Allow raw directories and their contents (all depths)
-!data/**/raw/
-!data/**/raw/**
+!datasets/**/raw/
+!datasets/**/raw/**
+
+# interim/ and processed/ hold only transform.py-generated build outputs (pickles, SQLite
+# dbs, JSON, ...) - never source files - so ignore their contents outright regardless of
+# format, rather than chasing individual extensions.
+datasets/**/interim/**
+datasets/**/processed/**

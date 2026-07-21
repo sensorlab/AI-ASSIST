@@ -43,6 +43,11 @@ pre-commit:
 	pre-commit run --all-files
 
 
+.PHONY: prepare
+prepare: ## Prepare a dataset, e.g. `make prepare DATASET=bus39`
+	$(Q)$(UV) run ai-assist-prepare $(DATASET)
+
+
 .PHONY: help
 help: ## This help.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -53,8 +58,9 @@ clean: ## Clean up cache files.
 	$(Q)find . -type d -name "__pycache__" -exec rm -rf {} +
 	$(Q)find . -type f -name "*.pyc" -delete
 
-	$(Q)find ./data -type f -name "*.pkl*" -print -delete
-	$(Q)find ./data -type f -name "*.joblib*" -print -delete
+	$(Q)find ./datasets -type f -name "*.pkl*" -print -delete
+	$(Q)find ./datasets -type f -name "*.joblib*" -print -delete
+	$(Q)find ./datasets -type f -name "*.db" -print -delete
 
 	$(Q)echo "🚀 Cleanup complete!"
 

@@ -42,7 +42,7 @@ source .venv/bin/activate
 cp .env.example .env
 ```
 
-4. Update the variables in `.env` for your environment (API keys, paths, hosts, ports, etc.).
+4. Update the variables in `.env` for your environment (API keys, paths, hosts, ports, log verbosity, etc.).
 
 5. Install project dependencies:
 
@@ -51,14 +51,21 @@ cp .env.example .env
 pip install -e .
 ```
 
-6. Prepare the dataset in the dataset config directory:
+6. Prepare a dataset:
 
 ```bash
-# required flow: config/<dataset>/dvc.yml
-# in this repository, dataset configs are under configs/<dataset>/dvc.yaml
-cd configs/bus39
-dvc repro
+uv run ai-assist-prepare <dataset>
 ```
+
+| Dataset | Description | Source format |
+|---|---|---|
+| `bus39` | IEEE 39-bus test system | ZIP archive |
+| `eles/2026-01` | ELES Slovenian transmission grid, version 2026-01 | ZIP archive |
+| `eles/2026-06` | ELES Slovenian transmission grid, version 2026-06 | ZIP archive |
+| `interscada/pl` | 41-bus grid (New England 39-bus extended) | Raw CSVs, no archive |
+| `interscada/fr` | French transmission grid pilot dataset | Raw CSVs, no archive |
+
+For the two ZIP-based datasets (`bus39`, `eles/2026-01`) this also unpacks the archive into `interim/`; the extracted intermediate files are removed once the ML-ready pickles are built, unless you pass `--no-cleanup`. Set `LOG_LEVEL=DEBUG` (in `.env` or inline, e.g. `LOG_LEVEL=DEBUG uv run ai-assist-prepare bus39`) to see per-file extraction logs and the exact subprocess commands being run.
 
 7. Start the service with Docker Compose:
 
@@ -66,23 +73,17 @@ dvc repro
 docker compose up --build
 ```
 
-Pipeline configuration path:
-
-- `config/<dataset>/dvc.yml` (required flow)
-- `configs/bus39/dvc.yaml` (path used in this repository)
+Each dataset is a self-contained directory under `datasets/<dataset>/` holding its raw/interim data alongside its own `prepare.py` + `transform.py`; see `scripts/prepare.py` for how dataset names are discovered and dispatched.
 
 ---
 
 ## 📁 Repository Structure
 
 ```text
-├── configs/                # Configuration files for experiments and pipelines
-│   └── bus39/              # DVC pipeline configuration for IEEE 39-bus workflow
-├── data/                   # Public datasets used for experiments
-│   └── bus39/              # IEEE 39-bus related data
+├── datasets/               # Public datasets: raw/interim data + prepare.py/transform.py per dataset
+│   └── bus39/              # IEEE 39-bus related data and transform.py
 ├── reports/                # Jupyter notebooks with analyses and reports
-├── scripts/                # Utility and data processing scripts
-│   └── bus39/transform.py  # Data transformation for IEEE 39-bus workflow
+├── scripts/                # Shared dataset-prep dispatcher and standalone service scripts
 ├── src/                    # Source code (metrics, preprocessing, utilities)
 └── README.md               # Project documentation
 ```
