@@ -207,7 +207,7 @@ class ServiceBenchmarkTests(unittest.TestCase):
 
 
 class MlBenchmarkTests(unittest.TestCase):
-    def test_record_table_excludes_experiment_and_includes_known_crit_gen(self):
+    def test_record_table_excludes_experiment_and_crit_gen_leakage(self):
         lf = pd.DataFrame({"feature": [1.0, 2.0]}, index=["s1", "s2"])
         tsa = pd.DataFrame(
             {
@@ -224,7 +224,12 @@ class MlBenchmarkTests(unittest.TestCase):
         X, _, _ = ml_benchmark.build_record_table(lf, tsa, scaler=_IdentityScaler())
 
         self.assertNotIn("experiment", X.columns)
-        self.assertIn("Crit_gen", X.columns)
+        # Crit_gen is the simulation outcome, not a pre-fault-available input - must not
+        # leak into the regression features (see CONTINGENCY_CATEGORICAL_COLUMNS).
+        self.assertNotIn("Crit_gen", X.columns)
+        self.assertIn("Location", X.columns)
+        self.assertIn("Terminal", X.columns)
+        self.assertIn("Type", X.columns)
 
 
 if __name__ == "__main__":

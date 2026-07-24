@@ -24,6 +24,7 @@ from src.domain.estimation.models import (
     ReportNeighbor,
     ReportStats,
     ReportSummary,
+    SssaNeighbor,
     Stats,
 )
 from src.domain.estimation.weights import K, query_distances
@@ -75,6 +76,11 @@ def _dataset_paths(data_dir: Path, dataset_name: str) -> tuple[Path, Path, Path]
 def _fsa_dataset_path(data_dir: Path, dataset_name: str) -> Path | None:
     processed = data_dir / dataset_name / "processed"
     return _resolve_optional_dataset_file(processed, "fsa")
+
+
+def _sssa_dataset_path(data_dir: Path, dataset_name: str) -> Path | None:
+    processed = data_dir / dataset_name / "processed"
+    return _resolve_optional_dataset_file(processed, "sssa")
 
 
 def make_scaler_eles() -> Any:
@@ -365,13 +371,13 @@ def _ensure_finite(name: str, values: np.ndarray, *, crit_gen: str) -> None:
         raise ValueError(f"Non-finite values found in `{name}` for crit_gen={crit_gen}")
 
 
-def _normalized_weights(distances: np.ndarray, *, crit_gen: str) -> np.ndarray:
+def _normalized_weights(distances: np.ndarray, *, crit_gen: str, alpha: float = 1.0) -> np.ndarray:
     if distances.size == 0:
         raise ValueError(f"No distances found for crit_gen={crit_gen}")
 
     _ensure_finite("query_distances", distances, crit_gen=crit_gen)
 
-    weights = K(distances)
+    weights = K(distances, alpha)
     _ensure_finite("query_weights", weights, crit_gen=crit_gen)
 
     weight_sum = float(weights.sum())
@@ -414,7 +420,7 @@ def _distance_summary(qds: np.ndarray) -> dict[str, float]:
     }
 
 
-def _neighborhood_compactness(X_neighbors: np.ndarray, *, crit_gen: str) -> float | None:
+def _neighborhood_compactness(X_neighbors: np.ndarray, *, crit_gen: str, alpha: float = 1.0) -> float | None:
     """Normalized pairwise compactness within one critical-generator group.
 
     This is not a calibrated density estimate. It is the mean exponential
@@ -432,7 +438,7 @@ def _neighborhood_compactness(X_neighbors: np.ndarray, *, crit_gen: str) -> floa
     pairwise_distances = pdist(X_neighbors, metric="euclidean")
     _ensure_finite("pairwise_distances", pairwise_distances, crit_gen=crit_gen)
 
-    pairwise_weights = K(pairwise_distances)
+    pairwise_weights = K(pairwise_distances, alpha)
     _ensure_finite("pairwise_weights", pairwise_weights, crit_gen=crit_gen)
 
     compactness = float(pairwise_weights.mean())
@@ -450,6 +456,7 @@ class EstimationService:
         tsa: SqliteRecordStore,
         db: DatabaseQdrant,
         fsa: SqliteRecordStore | None = None,
+        sssa: SqliteRecordStore | None = None,
     ):
         self.columns = columns
         self.scaler = scaler
@@ -458,6 +465,9 @@ class EstimationService:
         # Not every dataset has FSA (frequency stability) data - None here means the active
         # dataset doesn't support it; estimate_by_contingency() raises NotImplementedError.
         self.fsa = fsa
+        # Same for SSSA (small-signal stability) - None means the active dataset doesn't
+        # support it; estimate_sssa_by_generator() raises NotImplementedError.
+        self.sssa = sssa
 
     def ensure_columns(self, request_cols: Iterable[str]) -> None:
         inputs_cols = set(self.columns)
@@ -542,6 +552,27 @@ class EstimationService:
 
         return lf_fsa, embed_cols, X_query
 
+    def _query_enriched_sssa_neighbors(
+        self,
+        state: Mapping[str, float | None],
+        exclude_uids: Iterable[str],
+        n_neighbors: int | None = None,
+    ) -> tuple[pd.DataFrame, list[str], np.ndarray]:
+        """SSSA analog of _query_enriched_fsa_neighbors. Coverage isn't universal per state -
+        some states have no recorded SSSA modes at all - so an inner join silently excludes
+        such states rather than treating that as an error, same as FSA."""
+        if self.sssa is None:
+            raise NotImplementedError("This dataset does not provide SSSA (small-signal stability) data")
+
+        rows, embed_cols, X_query = self._query_neighbors(state, exclude_uids, n_neighbors)
+
+        sssa_subset = self.sssa.fetch(rows.index)
+        lf_sssa = rows.merge(sssa_subset, how="inner", left_index=True, right_on="state")
+        if lf_sssa.empty:
+            return lf_sssa, [], np.empty((1, 0), dtype=np.float64)
+
+        return lf_sssa, embed_cols, X_query
+
     def _weight_group(
         self,
         subset: pd.DataFrame,
@@ -549,18 +580,21 @@ class EstimationService:
         X_query: np.ndarray,
         *,
         group_name: str,
+        alpha: float = 1.0,
     ) -> tuple[pd.DataFrame, np.ndarray, float | None]:
         """Compute normalized query-distance weights and neighborhood compactness for one
         group, writing 'weight'/'distance' columns onto a copy of subset. Shared by every
         estimate_* method's per-group loop (estimate_by_location re-normalizes these within
-        a tighter sub-group afterward rather than recomputing from scratch)."""
+        a tighter sub-group afterward rather than recomputing from scratch). `alpha` is the
+        exponential-kernel decay rate (src/domain/estimation/weights.py::K); not exposed on
+        the public API, only threaded through for internal sensitivity-analysis scripts."""
         subset = subset.copy()
         X_neighbors = subset[embed_cols].to_numpy(dtype=np.float64)
         _ensure_finite("X_neighbors", X_neighbors, crit_gen=group_name)
 
         qds = query_distances(X_query=X_query, X_neighbor=X_neighbors)
-        qw_norm = _normalized_weights(qds, crit_gen=group_name)
-        compactness = _neighborhood_compactness(X_neighbors, crit_gen=group_name)
+        qw_norm = _normalized_weights(qds, crit_gen=group_name, alpha=alpha)
+        compactness = _neighborhood_compactness(X_neighbors, crit_gen=group_name, alpha=alpha)
 
         subset["weight"] = qw_norm
         subset["distance"] = qds
@@ -591,13 +625,17 @@ class EstimationService:
         lf_tsa: pd.DataFrame,
         embed_cols: list[str],
         X_query: np.ndarray,
+        *,
+        alpha: float = 1.0,
     ) -> tuple[dict[str, Report], pd.DataFrame]:
         reports: dict[str, Report] = {}
         weighted_subsets: list[pd.DataFrame] = []
 
         for crit_gen_value, subset in lf_tsa.groupby(by="Crit_gen", dropna=False):
             crit_gen = str(crit_gen_value)
-            subset, qw_norm, compactness = self._weight_group(subset, embed_cols, X_query, group_name=crit_gen)
+            subset, qw_norm, compactness = self._weight_group(
+                subset, embed_cols, X_query, group_name=crit_gen, alpha=alpha
+            )
             cct_neighbors = subset["CCT"].to_numpy(dtype=np.float64)
             X_neighbors = subset[embed_cols].to_numpy(dtype=np.float64)
             qds = subset["distance"].to_numpy(dtype=np.float64)
@@ -659,6 +697,7 @@ class EstimationService:
         state: Mapping[str, float | None],
         exclude_uids: Iterable[str],
         n_neighbors: int | None = None,
+        alpha: float = 1.0,
     ) -> dict[str, Report]:
         lf_tsa, embed_cols, X_query = self._query_enriched_neighbors(
             state=state,
@@ -668,7 +707,7 @@ class EstimationService:
         if lf_tsa.empty:
             return {}
 
-        reports, _ = self._reports_by_generator(lf_tsa, embed_cols, X_query)
+        reports, _ = self._reports_by_generator(lf_tsa, embed_cols, X_query, alpha=alpha)
         return reports
 
     def estimate_by_location(
@@ -676,6 +715,7 @@ class EstimationService:
         state: Mapping[str, float | None],
         exclude_uids: Iterable[str],
         n_neighbors: int | None = None,
+        alpha: float = 1.0,
     ) -> dict[str, dict[str, LocationReport]]:
         lf_tsa, embed_cols, X_query = self._query_enriched_neighbors(
             state=state,
@@ -685,7 +725,7 @@ class EstimationService:
         if lf_tsa.empty:
             return {}
 
-        _, weighted_lf_tsa = self._reports_by_generator(lf_tsa, embed_cols, X_query)
+        _, weighted_lf_tsa = self._reports_by_generator(lf_tsa, embed_cols, X_query, alpha=alpha)
         reports: dict[str, dict[str, LocationReport]] = {}
 
         for (location_value, crit_gen_value), subset in weighted_lf_tsa.groupby(
@@ -726,6 +766,7 @@ class EstimationService:
                         neighborhood_compactness=_neighborhood_compactness(
                             X_neighbors,
                             crit_gen=group_name,
+                            alpha=alpha,
                         ),
                         n=int(X_neighbors.shape[0]),
                         n_eff=_effective_sample_size(qw_norm),
@@ -760,6 +801,8 @@ class EstimationService:
         lf_fsa: pd.DataFrame,
         embed_cols: list[str],
         X_query: np.ndarray,
+        *,
+        alpha: float = 1.0,
     ) -> dict[tuple[str, str], FsaReport]:
         """Compute one FsaReport per (failed_gen, measured_gen) pair - the shared
         computation behind both estimate_by_observed_generator and
@@ -775,7 +818,9 @@ class EstimationService:
             measured_gen = str(measured_gen_value)
             group_name = f"{failed_gen}/{measured_gen}"
 
-            subset, qw_norm, compactness = self._weight_group(subset, embed_cols, X_query, group_name=group_name)
+            subset, qw_norm, compactness = self._weight_group(
+                subset, embed_cols, X_query, group_name=group_name, alpha=alpha
+            )
             qds = subset["distance"].to_numpy(dtype=np.float64)
 
             metrics_weighted: dict[str, float] = {}
@@ -805,6 +850,7 @@ class EstimationService:
         state: Mapping[str, float | None],
         exclude_uids: Iterable[str],
         n_neighbors: int | None = None,
+        alpha: float = 1.0,
     ) -> dict[str, dict[str, FsaReport]]:
         """Primary FSA view: for each observed/measured generator, the frequency-stability
         outcome per failed generator - the FSA analog of estimate_by_generator. Raises
@@ -817,7 +863,9 @@ class EstimationService:
             return {}
 
         reports: dict[str, dict[str, FsaReport]] = {}
-        for (failed_gen, measured_gen), report in self._fsa_reports_by_pair(lf_fsa, embed_cols, X_query).items():
+        for (failed_gen, measured_gen), report in self._fsa_reports_by_pair(
+            lf_fsa, embed_cols, X_query, alpha=alpha
+        ).items():
             reports.setdefault(measured_gen, {})[failed_gen] = report
         return reports
 
@@ -826,6 +874,7 @@ class EstimationService:
         state: Mapping[str, float | None],
         exclude_uids: Iterable[str],
         n_neighbors: int | None = None,
+        alpha: float = 1.0,
     ) -> dict[str, dict[str, FsaReport]]:
         """Secondary FSA view: for each failed generator, the frequency-stability outcome
         per observed/measured generator - the FSA analog of estimate_by_location. Raises
@@ -838,8 +887,74 @@ class EstimationService:
             return {}
 
         reports: dict[str, dict[str, FsaReport]] = {}
-        for (failed_gen, measured_gen), report in self._fsa_reports_by_pair(lf_fsa, embed_cols, X_query).items():
+        for (failed_gen, measured_gen), report in self._fsa_reports_by_pair(
+            lf_fsa, embed_cols, X_query, alpha=alpha
+        ).items():
             reports.setdefault(failed_gen, {})[measured_gen] = report
+        return reports
+
+    def _sssa_metric_cols(self) -> list[str]:
+        assert self.sssa is not None
+        return [c for c in self.sssa.columns if c not in ("state", "mode_id", "generator", "real_part", "imag_part")]
+
+    @staticmethod
+    def _transform_sssa_angles(metrics: dict[str, float]) -> dict[str, float]:
+        """Passthrough placeholder for a future AngleSinCos-style treatment of SSSA's raw-degree
+        angle columns (ConAng/ObsAng/ParAng and their state-variable-suffixed variants, e.g.
+        ObsAng_speed - identified generically by "Ang" appearing in the column name, since the
+        exact column set differs per dataset). Raw degrees have the same wraparound problem
+        phi_Bus*_[deg] (LF) already gets AngleSinCos for - 179 and -179 degrees are 2 degrees
+        apart, not ~358 - which only matters once something averages/compares these values
+        directly. Nothing does yet: estimate_sssa_by_generator() only returns raw per-row
+        values, so this is currently the identity function - a seam to fill in once an actual
+        aggregation is built, not a fix being applied now."""
+        return metrics
+
+    def estimate_sssa_by_generator(
+        self,
+        state: Mapping[str, float | None],
+        exclude_uids: Iterable[str],
+        n_neighbors: int | None = None,
+    ) -> dict[str, list[SssaNeighbor]]:
+        """Raw, unweighted SSSA retrieval grouped by generator - the only SSSA query exposed
+        for now. mode_id is a per-state local identifier only (mode indices aren't comparable
+        across operating states, per the data dictionary) and is never used as a grouping key -
+        only generator is, since generator identity is comparable across states. No
+        weighting/summary is computed here by design, pending domain input on what
+        aggregation (if any) is wanted; every retrieved (state, mode_id, generator) row is
+        returned as-is. Raises NotImplementedError (mapped to HTTP 501 at the API layer, if
+        ever exposed there) if the active dataset has no SSSA data."""
+        lf_sssa, embed_cols, X_query = self._query_enriched_sssa_neighbors(
+            state=state, exclude_uids=exclude_uids, n_neighbors=n_neighbors
+        )
+        if lf_sssa.empty:
+            return {}
+
+        metric_cols = self._sssa_metric_cols()
+        X_neighbors = lf_sssa[embed_cols].to_numpy(dtype=np.float64)
+        _ensure_finite("X_neighbors", X_neighbors, crit_gen="sssa")
+
+        lf_sssa = lf_sssa.copy()
+        lf_sssa["distance"] = query_distances(X_query=X_query, X_neighbor=X_neighbors)
+
+        reports: dict[str, list[SssaNeighbor]] = {}
+        for generator_value, subset in lf_sssa.groupby("generator", dropna=False):
+            generator = str(generator_value)
+            subset = subset.sort_values("distance")
+            reports[generator] = [
+                SssaNeighbor(
+                    state=str(item["state"]),
+                    mode_id=int(item["mode_id"]),
+                    real_part=float(item["real_part"]),
+                    imag_part=float(item["imag_part"]),
+                    metrics=self._transform_sssa_angles({m: float(item[m]) for m in metric_cols}),
+                    distance=float(item["distance"]),
+                )
+                for item in subset[["state", "mode_id", "real_part", "imag_part", *metric_cols, "distance"]].to_dict(
+                    orient="records"
+                )
+            ]
+
         return reports
 
     def estimate(
@@ -847,8 +962,9 @@ class EstimationService:
         state: Mapping[str, float | None],
         exclude_uids: Iterable[str],
         n_neighbors: int | None = None,
+        alpha: float = 1.0,
     ) -> dict[str, Report]:
-        return self.estimate_by_generator(state=state, exclude_uids=exclude_uids, n_neighbors=n_neighbors)
+        return self.estimate_by_generator(state=state, exclude_uids=exclude_uids, n_neighbors=n_neighbors, alpha=alpha)
 
 
 def build_estimation_service() -> EstimationService:
@@ -856,6 +972,7 @@ def build_estimation_service() -> EstimationService:
     app_settings = get_app_settings()
     path_lf_dataset, path_tsa_dataset, path_topology_cols = _dataset_paths(app_settings.data_dir, config.dataset_name)
     path_fsa_dataset = _fsa_dataset_path(app_settings.data_dir, config.dataset_name)
+    path_sssa_dataset = _sssa_dataset_path(app_settings.data_dir, config.dataset_name)
     use_population_lock = config.url.strip().lower() != ":memory:"
 
     lf: pd.DataFrame = pd.read_pickle(path_lf_dataset)
@@ -864,6 +981,10 @@ def build_estimation_service() -> EstimationService:
     fsa: SqliteRecordStore | None = None
     if path_fsa_dataset is not None:
         fsa = SqliteRecordStore(path_fsa_dataset, table="fsa")
+
+    sssa: SqliteRecordStore | None = None
+    if path_sssa_dataset is not None:
+        sssa = SqliteRecordStore(path_sssa_dataset, table="sssa")
 
     scaler: Any = _make_scaler_for_dataset(config.dataset_name)
     lf_scaled = cast(pd.DataFrame, scaler.fit_transform(lf))
@@ -887,4 +1008,4 @@ def build_estimation_service() -> EstimationService:
     )
     db.fit(lf_scaled, force=False)
 
-    return EstimationService(columns=list(lf.columns), scaler=scaler, tsa=tsa, db=db, fsa=fsa)
+    return EstimationService(columns=list(lf.columns), scaler=scaler, tsa=tsa, db=db, fsa=fsa, sssa=sssa)
