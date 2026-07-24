@@ -30,6 +30,25 @@ class NeighborhoodQualityIndicatorTests(unittest.TestCase):
 
         np.testing.assert_allclose(weights, np.full(3, 1.0 / 3.0))
 
+    def test_normalized_weights_alpha_is_forwarded_to_kernel(self):
+        distances = np.array([1.0, 2.0])
+
+        default_alpha = _normalized_weights(distances, crit_gen="G1")
+        steeper_alpha = _normalized_weights(distances, crit_gen="G1", alpha=5.0)
+
+        # A larger alpha sharpens the exponential kernel, concentrating more weight
+        # on the nearer neighbor - confirms alpha reaches K() rather than being ignored.
+        self.assertGreater(steeper_alpha[0], default_alpha[0])
+
+    def test_neighborhood_compactness_alpha_is_forwarded_to_kernel(self):
+        X = np.array([[0.0], [1.0]])
+
+        default_alpha = _neighborhood_compactness(X, crit_gen="G1")
+        steeper_alpha = _neighborhood_compactness(X, crit_gen="G1", alpha=5.0)
+
+        self.assertAlmostEqual(default_alpha, math.exp(-1.0))
+        self.assertAlmostEqual(steeper_alpha, math.exp(-5.0))
+
     def test_neighborhood_compactness_excludes_diagonal_terms(self):
         X = np.array([[0.0], [1.0]])
 
@@ -45,9 +64,9 @@ class NeighborhoodQualityIndicatorTests(unittest.TestCase):
         X = np.array([[0.0], [1.0], [2.0]])
         seen_distances: list[np.ndarray] = []
 
-        def capture_kernel(distances: np.ndarray) -> np.ndarray:
+        def capture_kernel(distances: np.ndarray, alpha: float = 1.0) -> np.ndarray:
             seen_distances.append(distances.copy())
-            return K(distances)
+            return K(distances, alpha)
 
         with patch("src.domain.estimation.service.K", side_effect=capture_kernel):
             _neighborhood_compactness(X, crit_gen="G1")

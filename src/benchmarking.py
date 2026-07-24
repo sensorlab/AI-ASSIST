@@ -6,7 +6,7 @@ import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error, root_mean_squared_error
 from sklearn.model_selection import GroupKFold
 
-CONTINGENCY_CATEGORICAL_COLUMNS = ("Crit_gen", "Location", "Terminal", "Type")
+CONTINGENCY_CATEGORICAL_COLUMNS = ("Location", "Terminal", "Type")
 ABSOLUTE_ERROR_QUANTILES = (0.00, 0.25, 0.50, 0.75, 0.90, 0.95, 0.99, 1.00)
 
 
