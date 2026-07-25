@@ -34,7 +34,6 @@ from src.services.qdrant.config import get_qdrant_config
 logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
-REPORT_PATH: Final[Path] = PROJECT_DIR / "report-alpha-k-sweep.joblib"
 
 K_VALUES: Final[tuple[int, ...]] = (25, 50, 100, 200)
 ALPHA_VALUES: Final[tuple[float, ...]] = (0.5, 1.0, 2.0)
@@ -45,7 +44,13 @@ FOLDS_TO_EVALUATE: Final[tuple[int, ...]] = (0,)
 # Evaluate a fixed random subsample of held-out states per fold instead - a coarse sweep,
 # not a full-fold benchmark; this is disclosed explicitly wherever the results are reported.
 STATES_PER_FOLD: Final[int] = 300
-SAMPLE_SEED: Final[int] = 42
+# Overridable via ALPHA_K_SWEEP_SAMPLE_SEED for multi-seed robustness checks (repeating the
+# sweep across several draws to attach an uncertainty band to the reported MAE/RMSE spread);
+# default 42 matches the seed used for the paper's originally reported sweep.
+SAMPLE_SEED: Final[int] = int(os.environ.get("ALPHA_K_SWEEP_SAMPLE_SEED", "42"))
+_SEED_SUFFIX = "" if SAMPLE_SEED == 42 else f"-seed{SAMPLE_SEED}"
+REPORT_PATH: Final[Path] = PROJECT_DIR / f"report-alpha-k-sweep{_SEED_SUFFIX}.joblib"
+CSV_PATH: Final[Path] = PROJECT_DIR / f"alpha_k_sweep{_SEED_SUFFIX}.csv"
 
 
 def _configured_dataset_paths() -> tuple[Path, Path]:
@@ -172,8 +177,8 @@ def main() -> None:
     print(results[["fold", "K", "alpha", "coverage", "mae", "rmse"]].to_string(index=False))
 
     joblib.dump({"results": results, "k_values": K_VALUES, "alpha_values": ALPHA_VALUES}, REPORT_PATH)
-    results.to_csv(PROJECT_DIR / "alpha_k_sweep.csv", index=False)
-    logger.info(f"Saved report to {REPORT_PATH} and alpha_k_sweep.csv")
+    results.to_csv(CSV_PATH, index=False)
+    logger.info(f"Saved report to {REPORT_PATH} and {CSV_PATH}")
 
 
 if __name__ == "__main__":

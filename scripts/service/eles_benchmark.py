@@ -61,7 +61,10 @@ COVERAGES: Final[tuple[float, ...]] = (1.0, 0.95, 0.9, 0.8, 0.7, 0.5)
 # distinct Crit_gen groups to aggregate), not just a bigger loop. Off by default so the
 # full-population runs already used for paper numbers (e.g. lines_only) are unaffected and
 # stay exactly reproducible. Same SAMPLE_SEED convention as scripts/service/alpha_k_sweep.py.
-SAMPLE_SEED: Final[int] = 42
+# Overridable via ELES_BENCHMARK_SAMPLE_SEED for multi-seed robustness checks (e.g. repeating
+# the topology with/without-filter ablation across several draws); default 42 matches the
+# seed used for the paper's reported ablation numbers.
+SAMPLE_SEED: Final[int] = int(os.environ.get("ELES_BENCHMARK_SAMPLE_SEED", "42"))
 
 
 def _process_state(
@@ -156,6 +159,8 @@ def main() -> None:
     variant_tag = config.topology_variant
     if sample_states:
         variant_tag = f"{config.topology_variant}-sample{sample_states}"
+        if SAMPLE_SEED != 42:
+            variant_tag = f"{variant_tag}-seed{SAMPLE_SEED}"
     report_path = PROJECT_DIR / f"report-{safe_dataset}-{variant_tag}.joblib"
     risk_coverage_path = PROJECT_DIR / f"risk_coverage_{safe_dataset}_{variant_tag}.csv"
 
