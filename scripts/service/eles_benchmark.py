@@ -11,11 +11,21 @@ any further eles benchmark reruns.
 Uses an embedded (:memory:) Qdrant instance rather than a live API server, for the same
 reason the exploratory script did: no external services needed, and local-mode brute-force
 search is fast enough at this dataset's scale (~4,400 states) to run a full leave-one-group-
-out pass in-session.
+out pass in-session - true under a real (non-degenerate) topology filter, which restricts
+each query to a small same-topology subset. Under a variant whose filter is a no-op (e.g.
+slovenia_only on the current data batch - see the README), every query aggregates over the
+full ~4,400-state pool instead, which is far slower per query, not just a bigger loop; set
+ELES_BENCHMARK_SAMPLE_STATES to a state count (e.g. 300) to subsample which states are used
+as queries (retrieval still searches the full population - only the query side is sampled),
+keeping runtime tractable for topology-variant comparisons. Off by default so full-population
+runs used for paper numbers (e.g. lines_only) stay exactly reproducible.
 
 Run from repository root, e.g.:
     DATASET_NAME=eles/2026-06 TOPOLOGY_VARIANT=lines_only QDRANT_URL=":memory:" \\
         uv run python scripts/service/eles_benchmark.py
+
+    DATASET_NAME=eles/2026-06 TOPOLOGY_VARIANT=slovenia_only QDRANT_URL=":memory:" \\
+        ELES_BENCHMARK_SAMPLE_STATES=300 uv run python scripts/service/eles_benchmark.py
 """
 
 from __future__ import annotations
@@ -44,6 +54,14 @@ logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 COVERAGES: Final[tuple[float, ...]] = (1.0, 0.95, 0.9, 0.8, 0.7, 0.5)
+# Optional query-side subsampling (env ELES_BENCHMARK_SAMPLE_STATES), for topology-variant
+# comparisons where the full leave-one-group-out pass is intractable - e.g. under a variant
+# whose topology filter is a no-op, every query is scored against the full reference pool
+# instead of a small same-topology subset, which is far more expensive per query (more
+# distinct Crit_gen groups to aggregate), not just a bigger loop. Off by default so the
+# full-population runs already used for paper numbers (e.g. lines_only) are unaffected and
+# stay exactly reproducible. Same SAMPLE_SEED convention as scripts/service/alpha_k_sweep.py.
+SAMPLE_SEED: Final[int] = 42
 
 
 def _process_state(
@@ -134,10 +152,22 @@ def main() -> None:
     logger.info(f"Collection: {config.collection_name} (topology_variant={config.topology_variant!r})")
 
     safe_dataset = config.dataset_name.replace("/", "-")
-    report_path = PROJECT_DIR / f"report-{safe_dataset}-{config.topology_variant}.joblib"
-    risk_coverage_path = PROJECT_DIR / f"risk_coverage_{safe_dataset}_{config.topology_variant}.csv"
+    sample_states = os.environ.get("ELES_BENCHMARK_SAMPLE_STATES")
+    variant_tag = config.topology_variant
+    if sample_states:
+        variant_tag = f"{config.topology_variant}-sample{sample_states}"
+    report_path = PROJECT_DIR / f"report-{safe_dataset}-{variant_tag}.joblib"
+    risk_coverage_path = PROJECT_DIR / f"risk_coverage_{safe_dataset}_{variant_tag}.csv"
 
     lf = pd.read_pickle(lf_path)
+    if sample_states:
+        original_n = len(lf)
+        n = min(int(sample_states), original_n)
+        rng = np.random.default_rng(SAMPLE_SEED)
+        sampled_ids = set(rng.choice(sorted(lf.index.astype(str)), size=n, replace=False))
+        lf = lf.loc[lf.index.astype(str).isin(sampled_ids)]
+        logger.info(f"Query-side subsample: {n} of {original_n} states as queries (seed={SAMPLE_SEED})")
+
     tsa_store = SqliteRecordStore(tsa_path, table="tsa")
     tsa = tsa_store.fetch(list(lf.index.astype(str)))
     tsa_by_state = {str(state_id): subset.copy() for state_id, subset in tsa.groupby("state", observed=True)}
