@@ -24,6 +24,7 @@ Run from repository root:
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Final
 
@@ -37,9 +38,15 @@ from src.config.logging import configure_logging
 logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
-LINES_ONLY_PATH: Final[Path] = PROJECT_DIR / "report-eles-2026-06-lines_only-sample300.joblib"
-SLOVENIA_ONLY_PATH: Final[Path] = PROJECT_DIR / "report-eles-2026-06-slovenia_only-sample300.joblib"
-OUTPUT_PATH: Final[Path] = PROJECT_DIR / "eles_topology_ablation_significance.csv"
+# ELES_ABLATION_SAMPLE_SEED lets this recompute the same significance/tail-quantile check
+# against a different ablation sample seed's joblib pair (see scripts/service/
+# eles_benchmark.py's ELES_BENCHMARK_SAMPLE_SEED), for a multi-seed robustness check on the
+# original (seed 42) finding - not just a single-draw result.
+_ABLATION_SEED = os.environ.get("ELES_ABLATION_SAMPLE_SEED")
+_SEED_SUFFIX = f"-seed{_ABLATION_SEED}" if _ABLATION_SEED else ""
+LINES_ONLY_PATH: Final[Path] = PROJECT_DIR / f"report-eles-2026-06-lines_only-sample300{_SEED_SUFFIX}.joblib"
+SLOVENIA_ONLY_PATH: Final[Path] = PROJECT_DIR / f"report-eles-2026-06-slovenia_only-sample300{_SEED_SUFFIX}.joblib"
+OUTPUT_PATH: Final[Path] = PROJECT_DIR / f"eles_topology_ablation_significance{_SEED_SUFFIX}.csv"
 
 N_BOOTSTRAP: Final[int] = 1000
 SEED: Final[int] = 42
