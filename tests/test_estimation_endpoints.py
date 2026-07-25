@@ -96,6 +96,31 @@ def _service_with_fsa() -> EstimationService:
     )
 
 
+def _service_with_sssa() -> EstimationService:
+    tsa = pd.DataFrame({"state": ["s1"], "CCT": [1.0], "Location": ["L1"], "Crit_gen": ["G1"], "Terminal": ["T1"]})
+    # s1 has two modes (1 and 2), both observed by GenA - mode_id must not be used as a
+    # group key, so both land under GenA alongside s2's mode. GenB only appears once, for
+    # s1's mode 1. s4 (present in _FakeDb's retrieved rows) is intentionally absent here to
+    # verify a retrieved state with no SSSA coverage is silently excluded, not an error.
+    sssa = pd.DataFrame(
+        {
+            "state": ["s1", "s1", "s1", "s2"],
+            "mode_id": [1, 1, 2, 1],
+            "generator": ["GenA", "GenB", "GenA", "GenA"],
+            "real_part": [-0.1, -0.1, -0.2, -0.3],
+            "imag_part": [5.0, 5.0, 6.0, 7.0],
+            "ObsMag": [0.10, 0.20, 0.30, 0.40],
+        }
+    )
+    return EstimationService(
+        columns=["x"],
+        scaler=_IdentityScaler(),
+        tsa=_FakeRecordStore(tsa),
+        db=_FakeDb(),
+        sssa=_FakeRecordStore(sssa),
+    )
+
+
 def _report() -> Report:
     return Report(
         summary=ReportSummary(
@@ -106,6 +131,7 @@ def _report() -> Report:
                 neighborhood_compactness=None,
                 n=1,
                 n_eff=1.0,
+                n_unique_states=1,
                 distances={"min": 0.0, "mean": 0.0, "median": 0.0, "spread": 0.0, "norm": 0.0},
                 location_counts={"L1": 1},
             ),
@@ -134,6 +160,7 @@ def _location_report() -> LocationReport:
                 neighborhood_compactness=None,
                 n=1,
                 n_eff=1.0,
+                n_unique_states=1,
                 distances={"min": 0.0, "mean": 0.0, "median": 0.0, "spread": 0.0, "norm": 0.0},
             ),
         ),
@@ -150,6 +177,7 @@ def _fsa_report() -> FsaReport:
                 neighborhood_compactness=None,
                 n=1,
                 n_eff=1.0,
+                n_unique_states=1,
                 distances={"min": 0.0, "mean": 0.0, "median": 0.0, "spread": 0.0, "norm": 0.0},
             ),
         ),
@@ -281,6 +309,49 @@ class EstimationServiceEndpointTests(unittest.TestCase):
             by_observed["MG1"]["FG1"].summary.metrics_weighted,
             by_failed["FG1"]["MG1"].summary.metrics_weighted,
         )
+
+    def test_estimate_sssa_raises_not_implemented_when_sssa_absent(self):
+        service = _service()
+
+        with self.assertRaises(NotImplementedError):
+            service.estimate_sssa_by_generator({"x": 0.0}, exclude_uids=[])
+
+    def test_estimate_sssa_by_generator_groups_by_generator_not_mode_and_is_unweighted(self):
+        service = _service_with_sssa()
+
+        by_generator = service.estimate_sssa_by_generator({"x": 0.0}, exclude_uids=[])
+
+        # mode_id is never a group key - GenA pools both of s1's modes (1 and 2) plus s2's
+        # mode, all under the same generator; GenB only has one entry.
+        self.assertEqual(set(by_generator), {"GenA", "GenB"})
+        self.assertEqual(len(by_generator["GenA"]), 3)
+        self.assertEqual(len(by_generator["GenB"]), 1)
+
+        # Raw, unweighted values - every retrieved row appears untouched, not averaged.
+        gen_a_modes = {n.mode_id for n in by_generator["GenA"]}
+        self.assertEqual(gen_a_modes, {1, 2})
+        gen_a_states = {n.state for n in by_generator["GenA"]}
+        self.assertEqual(gen_a_states, {"s1", "s2"})
+
+        # Sorted by distance ascending - s1 (x=0.0) is closer to the query (x=0.0) than s2
+        # (x=1.0), so both s1 rows must come before the s2 row.
+        self.assertEqual([n.state for n in by_generator["GenA"]], ["s1", "s1", "s2"])
+        self.assertAlmostEqual(by_generator["GenA"][0].distance, 0.0)
+        self.assertAlmostEqual(by_generator["GenA"][2].distance, 1.0)
+
+        # real_part/imag_part repeat exactly as recorded per (state, mode_id) - no weighting.
+        mode1 = next(n for n in by_generator["GenA"] if n.mode_id == 1 and n.state == "s1")
+        self.assertAlmostEqual(mode1.real_part, -0.1)
+        self.assertAlmostEqual(mode1.imag_part, 5.0)
+        self.assertAlmostEqual(mode1.metrics["ObsMag"], 0.10)
+
+        gen_b = by_generator["GenB"][0]
+        self.assertAlmostEqual(gen_b.metrics["ObsMag"], 0.20)
+
+        # s4 (retrieved by _FakeDb but absent from the sssa fixture) must not appear anywhere,
+        # and must not have raised - a state lacking SSSA coverage is silently excluded.
+        all_states = {n.state for neighbors in by_generator.values() for n in neighbors}
+        self.assertNotIn("s4", all_states)
 
 
 class EstimationRouteTests(unittest.TestCase):
