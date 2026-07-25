@@ -26,6 +26,7 @@ def _response_json(*, included_state_ids: list[str] | None = None) -> str:
                             "neighborhood_compactness": 1.0,
                             "n": 1,
                             "n_eff": 1.0,
+                            "n_unique_states": 1,
                             "distances": {
                                 "min": 0.1,
                                 "mean": 0.1,

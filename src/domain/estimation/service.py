@@ -709,6 +709,7 @@ class EstimationService:
                         # Effective number of contributing simulation records in this Crit_gen
                         # group, not the number of unique pre-fault states.
                         n_eff=_effective_sample_size(qw_norm),
+                        n_unique_states=int(subset["state"].nunique()),
                         distances=_distance_summary(qds),
                         location_counts=location_counts,
                     ),
@@ -800,6 +801,7 @@ class EstimationService:
                         ),
                         n=int(X_neighbors.shape[0]),
                         n_eff=_effective_sample_size(qw_norm),
+                        n_unique_states=int(subset["state"].nunique()),
                         distances=_distance_summary(qds),
                     ),
                 ),
@@ -866,6 +868,7 @@ class EstimationService:
                         neighborhood_compactness=compactness,
                         n=int(len(subset)),
                         n_eff=_effective_sample_size(qw_norm),
+                        n_unique_states=int(subset["state"].nunique()),
                         distances=_distance_summary(qds),
                     ),
                 ),

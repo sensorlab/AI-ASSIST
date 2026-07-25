@@ -111,6 +111,7 @@ class NeighborhoodQualityIndicatorTests(unittest.TestCase):
             "location_weight_mass": {"L1": 1.0},
             "n": 1,
             "n_eff": 1.0,
+            "n_unique_states": 1,
             "distances": {"min": 0.0, "mean": 0.0, "median": 0.0, "spread": 0.0, "norm": 0.0},
             "location_counts": {"L1": 1},
         }
