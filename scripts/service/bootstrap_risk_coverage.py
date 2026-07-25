@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import time
 from pathlib import Path
 from typing import Final
@@ -36,7 +37,10 @@ REPORT_PATH: Final[Path] = PROJECT_DIR / "report-2026-05-29.joblib"
 OUTPUT_PATH: Final[Path] = PROJECT_DIR / "bootstrap_ci_bus39.csv"
 
 COVERAGES: Final[tuple[float, ...]] = (1.0, 0.95, 0.9, 0.8, 0.7, 0.5)
-N_BOOTSTRAP: Final[int] = 200
+# Overridable via BOOTSTRAP_RISK_COVERAGE_N for a higher-resolution percentile-CI rerun
+# (200 resamples is on the low side for stable percentile CIs, particularly at the 50%
+# coverage tail where fewer states remain after selective filtering).
+N_BOOTSTRAP: Final[int] = int(os.environ.get("BOOTSTRAP_RISK_COVERAGE_N", "200"))
 SEED: Final[int] = 42
 CI_LOW, CI_HIGH = 2.5, 97.5
 
