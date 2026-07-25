@@ -58,18 +58,39 @@ def _resolve_optional_dataset_file(base_dir: Path, base_name: str) -> Path | Non
         return None
 
 
-def _dataset_paths(data_dir: Path, dataset_name: str) -> tuple[Path, Path, Path]:
+def _resolve_topology_cols_file(processed: Path, topology_variant: str | None) -> Path:
+    """Resolve the topology_cols artifact, variant-aware. Datasets with multiple named
+    variants (currently only eles/2026-06 - see its README's "Topology Variants" section)
+    write topology_cols_<variant>.json/.joblib.z instead of a single topology_cols.json;
+    datasets with only one definition (bus39, interscada/*, eles/2026-01) keep the old
+    unversioned topology_cols.json. Try the variant-specific name first, fall back to the
+    bare name so single-variant datasets need no changes at all."""
+    if topology_variant:
+        variant_specific = _resolve_optional_dataset_file(processed, f"topology_cols_{topology_variant}")
+        if variant_specific is not None:
+            return variant_specific
+    return _resolve_dataset_file(processed, "topology_cols")
+
+
+def _dataset_paths(
+    data_dir: Path,
+    dataset_name: str,
+    *,
+    topology_variant: str | None = None,
+) -> tuple[Path, Path, Path]:
     # lf.pkl is an interim, analyst-facing artifact (also the bulk input used once at startup
     # to fit the scaler and populate Qdrant); tsa/topology_cols live under processed/ as the
     # formats EstimationService actually reads per request/at startup (indexed SQLite for tsa,
     # plain JSON for topology_cols - joblib copies of both still exist under interim/ for
-    # analyst/notebook use).
+    # analyst/notebook use). topology_variant selects among a dataset's named topology_cols
+    # variants when it has more than one (see _resolve_topology_cols_file); None/absent falls
+    # back to the single unversioned topology_cols.json every dataset originally had.
     interim = data_dir / dataset_name / "interim"
     processed = data_dir / dataset_name / "processed"
     return (
         _resolve_dataset_file(interim, "lf.pkl"),
         _resolve_dataset_file(processed, "tsa"),
-        _resolve_dataset_file(processed, "topology_cols"),
+        _resolve_topology_cols_file(processed, topology_variant),
     )
 
 
@@ -135,7 +156,16 @@ def make_scaler_eles() -> Any:
             make_column_selector(pattern=r"^Sk_"),
         ),
         (
-            # oserv_ ~= out of service
+            # oserv_ ~= in/out-of-service status flag. NOTE: for eles/2026-01 and eles/2026-06
+            # specifically, empirical validation against power-flow columns showed the documented
+            # "True ~= out of service" convention is backwards for LINES: True correlates with
+            # nonzero power flow (in service/active) - this reversed-polarity reading is the one
+            # to trust. For GENERATORS the same 100%-clean correlation (True <-> nonzero output)
+            # was also observed, but is flagged as UNRESOLVED/possibly a partner-side export
+            # artifact (oserv_Gen* may be derived FROM the power value rather than an independent
+            # PowerFactory flag) - don't treat the generator case as confirmed the way the line
+            # case is. See datasets/eles/2026-06/README.md "Topology Variants" section. Not
+            # re-verified for bus39/interscada; don't assume this reversed polarity generalizes.
             # make_pipeline(
             #    SimpleImputer(strategy="constant", fill_value=True, keep_empty_features=True),
             #    # OneHotEncoder(drop="if_binary", sparse_output=False),
@@ -970,7 +1000,9 @@ class EstimationService:
 def build_estimation_service() -> EstimationService:
     config = get_qdrant_config()
     app_settings = get_app_settings()
-    path_lf_dataset, path_tsa_dataset, path_topology_cols = _dataset_paths(app_settings.data_dir, config.dataset_name)
+    path_lf_dataset, path_tsa_dataset, path_topology_cols = _dataset_paths(
+        app_settings.data_dir, config.dataset_name, topology_variant=config.topology_variant
+    )
     path_fsa_dataset = _fsa_dataset_path(app_settings.data_dir, config.dataset_name)
     path_sssa_dataset = _sssa_dataset_path(app_settings.data_dir, config.dataset_name)
     use_population_lock = config.url.strip().lower() != ":memory:"
