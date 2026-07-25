@@ -18,6 +18,17 @@ class Stats(BaseModel):
             "not the number of unique pre-fault states."
         ),
     )
+    n_unique_states: int = Field(
+        ...,
+        description=(
+            "Number of distinct pre-fault states contributing to this group, as opposed to "
+            "n/n_eff which count simulation records. A group can have high n_eff (or high "
+            "neighborhood_compactness, since records sharing a parent state contribute zero "
+            "pairwise distance) while resting on very few distinct states - this diagnostic "
+            "makes that narrow-support case visible instead of letting record-level "
+            "aggregation read as broad support."
+        ),
+    )
     distances: dict[str, float]
 
 
@@ -85,3 +96,19 @@ class FsaReport(BaseModel):
     summary: FsaReportSummary
     included_state_ids: list[str]
     per_neighbor: list[FsaReportNeighbor]
+
+
+class SssaNeighbor(BaseModel):
+    """A single retrieved (state, mode_id) row for one generator - raw, unweighted. mode_id
+    is a per-state local identifier only (mode indices aren't comparable across operating
+    states, per the data dictionary) - never compare/aggregate it across different states."""
+
+    state: str
+    mode_id: int
+    real_part: float
+    imag_part: float
+    # Whichever participation metric columns this dataset's sssa.pkl has (e.g. ObsMag_speed/
+    # ParAng_Psi2q for eles/2026-06, plain ConMag/ObsMag/... for eles/2026-01) - kept generic
+    # rather than named fields, same reasoning as FsaReportNeighbor.metrics.
+    metrics: dict[str, float]
+    distance: float
