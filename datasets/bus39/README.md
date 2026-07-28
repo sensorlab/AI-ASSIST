@@ -40,7 +40,7 @@ All raw data is packed in `raw/data.zip`:
 ### Load-flow file (`LF_main.csv`)
 
 - **Separator / decimal**: `;` separator, `,` decimal (European locale).
-- **`oserv_*` columns**: Arrive as numeric 0/1 and must be explicitly cast to `bool` before `convert_dtypes` — otherwise pyarrow infers them as integer. **Encoding is inverted**: `0` = in service, `1` = not in service (per the data dictionary). No topology variation in the current dataset (all values are `True`).
+- **`oserv_*` columns**: Arrive as numeric 0/1 and must be explicitly cast to `bool` before `convert_dtypes` — otherwise pyarrow infers them as integer. The source data dictionary states `0` = in service, `1` = not in service, **but that is contradicted by the archive**: all 44 flags are `1` in every one of the 21,783 states, while those same states carry non-zero generator dispatch and solved bus voltages. So `1` = in service here. There is no topology variation at all in this dataset, which also holds system inertia exactly constant. Grouping is polarity-invariant (it compares bitstrings for equality), so this affects documentation and any per-flag interpretation, not the retrieval results.
 
 ### TSA file (`TSA_main.csv`)
 
@@ -53,7 +53,7 @@ All raw data is packed in `raw/data.zip`:
 
 ### Topology columns
 
-`oserv_G_NN` and `oserv_Line_*` — 44 columns identified by regex `oserv?_.*`. Encoding: `0` = in service, `1` = not in service (inverted from the intuitive convention).
+`oserv_G_NN` and `oserv_Line_*` — 44 columns identified by regex `oserv?_.*`. The data dictionary claims `0` = in service, `1` = not in service, but the archive is uniformly `1` with the grid demonstrably energised, so `1` = in service. See the Design Decisions note above.
 
 ### Unused datasets
 
