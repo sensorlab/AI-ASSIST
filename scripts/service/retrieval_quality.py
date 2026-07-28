@@ -18,8 +18,13 @@ average regardless of who the neighbours are. Two measurements separate those.
    small, in which case the measured recall reflects that configuration and not a production HNSW
    index. The script reports which backend it used so the number is not over-read.
 
+The measurement is per dataset, because the metric is per dataset: the BUS39 and ELES scaled
+representations differ in dimensionality and in which feature block carries the variance, so a
+result on one says nothing about the other.
+
 Run from the repository root:
-    QDRANT_URL=:memory: uv run python scripts/service/retrieval_quality.py [n_query_states]
+    uv run python scripts/service/retrieval_quality.py [dataset] [n_query_states] [min_slice]
+e.g. bus39 300 200   or   eles/2026-06 300 50
 """
 
 from __future__ import annotations
@@ -46,21 +51,22 @@ from src.domain.estimation.service import _make_scaler_for_dataset  # noqa: E402
 logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
-LF_PATH: Final[Path] = PROJECT_DIR / "datasets/bus39/interim/lf.pkl"
-TSA_PATH: Final[Path] = PROJECT_DIR / "datasets/bus39/interim/tsa.pkl"
-OUT_CSV: Final[Path] = PROJECT_DIR / "retrieval_quality.csv"
 K: Final[int] = 100
 SEED: Final[int] = 42
 
 
 def main() -> None:
     configure_logging()
-    n_query = int(sys.argv[1]) if len(sys.argv) > 1 else 300
+    dataset = sys.argv[1] if len(sys.argv) > 1 else "bus39"
+    n_query = int(sys.argv[2]) if len(sys.argv) > 2 else 300
+    min_slice = int(sys.argv[3]) if len(sys.argv) > 3 else 200
+    base = PROJECT_DIR / "datasets" / dataset / "interim"
+    out_csv = PROJECT_DIR / f"retrieval_quality-{dataset.replace('/', '-')}.csv"
 
-    lf: pd.DataFrame = pd.read_pickle(LF_PATH)
-    tsa: pd.DataFrame = pd.read_pickle(TSA_PATH)
+    lf: pd.DataFrame = pd.read_pickle(base / "lf.pkl")
+    tsa: pd.DataFrame = pd.read_pickle(base / "tsa.pkl")
 
-    scaler = _make_scaler_for_dataset("bus39")
+    scaler = _make_scaler_for_dataset(dataset)
     Z = np.asarray(scaler.fit_transform(lf), dtype=np.float64)
     states = [str(i) for i in lf.index]
     pos = {s: i for i, s in enumerate(states)}
@@ -97,7 +103,7 @@ def main() -> None:
         key = (r["_loc"], r["_gen"])
         members = slice_map.get(key, {})
         others = [(s, c) for s, c in members.items() if s != qs]
-        if len(others) < 200:
+        if len(others) < min_slice:
             continue
 
         idx = np.array([pos[s] for s, _ in others])
@@ -122,6 +128,9 @@ def main() -> None:
 
     out = pd.DataFrame(
         [
+            {"quantity": "dataset", "value": dataset},
+            {"quantity": "scaled_dimensionality", "value": int(Z.shape[1])},
+            {"quantity": "min_slice_members", "value": min_slice},
             {"quantity": "n_query_states_used", "value": len(rhos)},
             {"quantity": "n_pairs_total", "value": n_pairs_total},
             {"quantity": "spearman_distance_vs_abs_dcct_mean", "value": round(rho, 4)},
@@ -131,7 +140,7 @@ def main() -> None:
             {"quantity": "reduction_vs_random_pct", "value": round(100.0 * (rand - near) / rand, 2)},
         ]
     )
-    out.to_csv(OUT_CSV, index=False)
+    out.to_csv(out_csv, index=False)
     print(out.to_string(index=False))
 
 
