@@ -238,3 +238,44 @@ Two column families, reshaped separately then joined into one output table:
 - **Generator names**: either abbreviated named-plant codes (`TSOS-G6`, `HDRA-G3`) or bare PowerFactory internal numeric IDs (`sym_8769_1`) for machines with no plant label. `normalize_sssa_generator()` only fixes a stray underscore before some dashes (`NEK_-G1` -> `NEK-G1`) - it does **not** map to TSA/FSA's EIC codes. That mapping exists (`datasets/eles/2026-01/raw/powerfactory_dictionary.xlsx`'s `Generators` sheet, `dummy_name` -> `for_name`) and has been verified to still apply to this dataset's generators, but only covers ~72 named plants, not the numeric-ID ones, and is deliberately deferred until SSSA has an actual consumer.
 - **State id mismatch fixed at parse time**: raw SSSA files are keyed by `<YYYYMMDD>_<HHMM>` timestamp (their filename), not the `{batch}_{row}` state id LF/TSA/FSA use. `_load_sssa_state_mapping()` translates via `clean_files/Dates/Date_main_N.csv` (its row index matches `LF_main_N.csv`'s row index for the same batch - verified across multiple batches, not just one). ~35 of 4,282 SSSA timestamps have no corresponding LF row at all (a genuine data gap, not a mapping bug - confirmed by checking every `Date_main_N.csv`) and are dropped (logged as `SSSA modes/participation drop N/M rows with no matching LF state`), not treated as an error.
 - **`mode_id` is a per-state local identifier only - never compare, join, or aggregate it across different `state` values.** Per the data dictionary: *"Nihajna načina v dveh različnih obratovalnih stanjih z istim imenom (se pravi Mode_0 v dveh različnih obratovalnih stanjih) nista nujno povezana (ni nujno da gre za isti nihajni način)"* - two oscillatory modes with the same name in two different operating states are not necessarily related; it's not necessarily the same oscillatory mode. `mode_id` numbering doesn't even reliably start at `0` (observed starting at `Mode3` in one sample). Column named `mode_id` rather than `mode` specifically to make cross-state comparison harder to reach for by accident. Parsed and wired into `EstimationService.estimate_sssa_by_generator()`, which groups by `generator` only (never `mode_id`) and returns raw, unweighted retrieval - no aggregation, pending domain input on what (if any) is wanted (tracked in `TODO.md`). Not yet exposed via the API.
+
+## SSSA Generator-Set Matching (Investigation, 2026-07-28)
+
+**Status: investigation only - no production code changed.** We're finalizing a beta version of the SSSA API endpoint, and `mode_id`'s non-comparability across states (see above) means the endpoint needs some other notion of what a live query actually matches on. `EstimationService.estimate_sssa_by_generator()` already groups by `generator` since generator identity, unlike `mode_id`, is at least nominally comparable across states - but that only works well if states broadly agree on which generators they report SSSA data for. This investigation checks whether they do, at two granularities: across different states, and across a single state's own modes. Both checks group by exact set equality only - `{"G1","G2","G3"}` is a different group from `{"G1","G2","G3","G4"}`, no partial-overlap credit given, mirroring the topology bitstring's exact-match semantics above.
+
+### State-vs-state: does every state cover the same generators?
+
+Produced by `scripts/service/eles_sssa_generator_set_eval.py` (pure pandas over `interim/sssa.pkl`, no Qdrant/`EstimationService` involved): per state, the set of generators with at least one SSSA participation row, grouped by exact-match signature.
+
+| Dataset | States total | States w/ SSSA | Distinct generator-sets | Max group size | % states with an exact-match twin | Mean set size | Median set size |
+|---|---|---|---|---|---|---|---|
+| `eles/2026-01` | 4,402 | 4,402 (100%) | 86 | 149 | **100.0%** | 52.5 | 53.0 |
+| `eles/2026-06` | 4,393 | 4,247 (96.7%) | **4,212** | 3 | **1.6%** | 70.2 | 70.0 |
+
+Opposite outcomes: `eles/2026-01` collapses into only 86 sets total, every state has an exact-match twin (in fact most have many - max group size 149). `eles/2026-06` fragments almost entirely - 4,212 distinct sets across 4,247 covered states, so ~98.4% of states have no exact-match twin at all, and the largest group anywhere is 3 states. This is the same shape of finding as the topology-column investigation above (an overly strict exact-match filter either fragments into singletons or is a healthy filter, depending on the dataset).
+
+### Within a state: do all its modes agree on which generators contribute?
+
+A different question from the above (which unions generators across all of a state's modes before comparing states) - this checks consistency *within* one state, across its own modes. Produced interactively in `reports/xx_sssa_analysis.ipynb`, reading `interim/sssa.pkl` for each dataset, grouping by `(state, mode_id)` to get each mode's generator set, then per state: how many distinct sets appear across its modes, and the largest number of modes sharing one exact set.
+
+`eles/2026-06` - distinct generator sets per state (`n_distinct_sets_per_state.value_counts()`), and the within-state max group size (`max_group_size_per_state.describe()`):
+
+| Distinct sets in a state | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| # states | 13 | 55 | 77 | 136 | 247 | 371 | 408 | 493 | 508 | 479 | 425 | 342 | 263 | 180 | 125 | 61 | 43 | 12 | 6 | 3 |
+
+Max group size per state: mean 1.32, median 1, 75th percentile 2, max 3 (n=4,247 states).
+
+`eles/2026-01` - same two stats:
+
+| Distinct sets in a state | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| # states | 348 | 495 | 971 | 1,148 | 740 | 400 | 151 | 149 |
+
+Max group size per state: mean 155.0, median 155, min 101, max 203 (n=4,402 states; this dataset's mode range goes up to ~181 in a single batch, so a max group size of ~155 means the large majority of a state's modes share one identical generator set).
+
+### Conclusion
+
+**Exact generator-set matching is not usable for `eles/2026-06` at either granularity checked.** State-vs-state, it's nearly as fragmented as the topology "full" definition above; within a single state across its own modes, the median state has no two modes agreeing on the exact same generator set at all (max group size 1). Whatever the eventual beta SSSA endpoint contract looks like, it cannot gate retrieval on exact generator-set identity for this dataset - that's a materially different, more permissive matching problem than what's measured here (see the caution against conflating "relaxed" with "this, but looser" in `TODO.md`), and remains an open design question pending domain input.
+
+`eles/2026-01` shows the opposite pattern at both granularities - coarse across states (86 sets total) and highly consistent within a state (most modes agree). Read this as a likely artifact of that drop's lower export fidelity (per-batch, no state-variable breakdown, and generally reflecting which generators are simply in service rather than genuine per-mode dynamics) rather than evidence that generator-set matching is a solved problem there - it just hasn't been checked against as fine-grained an export.
