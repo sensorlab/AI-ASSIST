@@ -310,12 +310,27 @@ datasets/*/*
 !datasets/**/*.py
 !datasets/**/README.md
 
-# Allow raw directories and their contents (all depths)
-!datasets/**/raw/
-!datasets/**/raw/**
+# Ignore every dataset's raw/ contents outright, regardless of extension - a path-based deny
+# rather than chasing individual extensions (the same gap this closed for interim/processed
+# below bit us here too: datasets/*/* is too shallow to reach nested raw/ files, so .zip/.txt
+# fell through to tracked-by-default while .csv/.xlsx only got caught by accident via
+# unrelated global rules above).
+datasets/**/raw/**
+
+# Then re-allow raw directory contents only for bus39 - the public IEEE 39-bus test case,
+# cleared to ship as a demo in this repository. Every other dataset's raw/ directory is real
+# grid data (ELES/InterSCADA) that must not be committed to this public repo - the directory
+# itself still exists on disk (prepare.py/transform.py read from it locally), it's just untracked.
+!datasets/bus39/raw/
+!datasets/bus39/raw/**
 
 # interim/ and processed/ hold only transform.py-generated build outputs (pickles, SQLite
 # dbs, JSON, ...) - never source files - so ignore their contents outright regardless of
 # format, rather than chasing individual extensions.
 datasets/**/interim/**
 datasets/**/processed/**
+
+# paper/ is its own independent git repository (the academic journal manuscript), nested
+# here only so Claude Code sessions in this workspace can read/write the codebase and the
+# manuscript together. It is never tracked by this repo.
+/paper/
