@@ -138,6 +138,70 @@ def melt_fsa(fsa: pd.DataFrame, metrics: tuple[str, ...] = FSA_METRICS) -> pd.Da
     return fsa_long[["state", "failed_gen", "measured_gen", *metrics]]
 
 
+SSSA_MODE_RE = re.compile(r"^(RealPart|ImagPart)_Mode(\d+)$")
+# eles/2026-01's SSSA export has no per-state-variable breakdown (unlike eles/2026-06's -
+# PowerFactory's SSSA report apparently ran with different settings for the two data drops;
+# the dictionary itself flags this breakdown as "optional depending on the settings used
+# when executing simulations") - confirmed empirically across several batches: every metric
+# column is directly `{metric}_Mode{N}_{generator}`, never `{metric}_Mode{N}_{state_variable}_{generator}`.
+SSSA_PARTICIPATION_RE = re.compile(
+    r"^(?P<metric>ConMag|ConAng|ObsMag|ObsAng|ParMag|ParAng)_Mode(?P<mode>\d+)_(?P<generator>.+)$"
+)
+
+
+def normalize_sssa_generator(name: str) -> str:
+    """Clean up a stray underscore some SSSA generator names have before a dash (e.g.
+    "NEK_-G1" -> "NEK-G1"). Does not map to TSA/FSA's EIC codes - that mapping only covers
+    named plants (see datasets/eles/2026-01/raw/powerfactory_dictionary.xlsx's Generators
+    sheet) and is deliberately deferred until SSSA has an actual consumer."""
+    return re.sub(r"_-", "-", name)
+
+
+def melt_sssa_modes(sssa: pd.DataFrame) -> pd.DataFrame:
+    """Reshape the RealPart_Mode{N}/ImagPart_Mode{N} eigenvalue columns (shared shape with
+    eles/2026-06) into one row per (state, mode_id). Plain numeric suffix, so pd.wide_to_long
+    applies directly - unlike the compound-suffix FSA/SSSA-participation columns.
+
+    IMPORTANT: mode_id is only unique within one state - per the data dictionary, "Oscillatory
+    modes of different operating points with the same names, aren't necessarily the same
+    oscillatory modes". Never compare, join, or aggregate mode_id across different states -
+    named "mode_id" rather than "mode" specifically to make that misuse harder to reach for."""
+    mode_cols = [c for c in sssa.columns if SSSA_MODE_RE.match(c)]
+    long = pd.wide_to_long(
+        sssa[["state", *mode_cols]],
+        stubnames=["RealPart_Mode", "ImagPart_Mode"],
+        i="state",
+        j="mode_id",
+        sep="",
+        suffix=r"\d+",
+    ).reset_index()
+    return long.rename(columns={"RealPart_Mode": "real_part", "ImagPart_Mode": "imag_part"})
+
+
+def melt_sssa_participation(sssa: pd.DataFrame) -> pd.DataFrame:
+    """Reshape the per-(mode_id, generator) participation/observability columns into one row
+    per (state, mode_id, generator), with ConMag/ConAng/ObsMag/ObsAng/ParMag/ParAng as columns.
+    No state-variable dimension in this dataset (see SSSA_PARTICIPATION_RE) - mirrors
+    datasets/eles/2026-06/transform.py::melt_sssa_participation structurally, but that
+    version additionally folds a state_variable into each column name since its raw data has
+    that extra breakdown.
+
+    IMPORTANT: mode_id is only unique within one state - see melt_sssa_modes()."""
+    gen_cols = [c for c in sssa.columns if c != "state" and not SSSA_MODE_RE.match(c)]
+
+    tuples = []
+    for col in gen_cols:
+        m = SSSA_PARTICIPATION_RE.match(col)
+        if not m:
+            raise ValueError(f"Unrecognized SSSA column: {col!r}")
+        generator = normalize_sssa_generator(m["generator"])
+        tuples.append((int(m["mode"]), generator, m["metric"]))
+
+    sub = sssa.set_index("state")[gen_cols].copy()
+    sub.columns = pd.MultiIndex.from_tuples(tuples, names=["mode_id", "generator", "metric"])
+    return sub.stack(["mode_id", "generator"], future_stack=True).reset_index()
+
+
 def get_ignored_lines(path: Path):
     ignores: dict[int, list[int]] = {}
 
@@ -301,24 +365,25 @@ def processor(index: int, in_dir: Path, ignore_rows: list[int]) -> tuple[pd.Data
 
         return fsa_long
 
+    def prepare_sssa_dataset() -> tuple[pd.DataFrame, pd.DataFrame]:
+        skiprows = [x + 1 for x in ignore_rows]  # offset=1 because index=0 is header
+
+        sssa = pd.read_csv(sssa_csv, sep=";", decimal=",", index_col=0, skiprows=skiprows)
+        sssa = sssa.rename(columns=standardize_col_name)
+        sssa["state"] = f"{index}_" + sssa.index.map(str)
+        sssa = sssa.reset_index(drop=True)
+
+        sssa_modes = melt_sssa_modes(sssa)
+        sssa_participation = melt_sssa_participation(sssa)
+
+        return sssa_modes, sssa_participation
+
     lf = prepare_lf_dataset()
     tsa = prepare_tsa_dataset()
     fsa = prepare_fsa_dataset()
+    sssa_modes, sssa_participation = prepare_sssa_dataset()
 
-    return lf, tsa, fsa
-
-    # Merge LF an TSA datasets (add grid state to each experiment)
-    # lf_tsa = tsa.merge(lf, how="left", left_on="state", right_on="state")
-
-    # prev = lf_tsa.shape[1]
-    # lf_tsa = lf_tsa.dropna(axis="columns", how="all")
-    # print("lf_tsa dropped", prev - lf_tsa.shape[1], "all-NaN columns")
-
-    # ### Process SSSA
-    # sssa = pd.read_csv(in_dir / f"SSSA_main_{index}.csv", sep=";", decimal=",", index_col=0)
-    # sssa = sssa.rename(columns=standardize_col_name)
-    # sssa["state"] = f"{index}_" + sssa.index.map(str)
-    # # Not sure what are we estinating here
+    return lf, tsa, fsa, sssa_modes, sssa_participation
 
 
 @click.command()
@@ -384,10 +449,14 @@ def main(in_dir: Path, ignore_list_path: Path, dictionary_path: Path, out_dir: P
     lf: list[pd.DataFrame] | pd.DataFrame = []
     tsa: list[pd.DataFrame] | pd.DataFrame = []
     fsa: list[pd.DataFrame] | pd.DataFrame = []
-    for _lf, _tsa, _fsa in tqdm(executor(jobs)):
+    sssa_modes: list[pd.DataFrame] | pd.DataFrame = []
+    sssa_participation: list[pd.DataFrame] | pd.DataFrame = []
+    for _lf, _tsa, _fsa, _sssa_modes, _sssa_participation in tqdm(executor(jobs)):
         lf.append(_lf)
         tsa.append(_tsa)
         fsa.append(_fsa)
+        sssa_modes.append(_sssa_modes)
+        sssa_participation.append(_sssa_participation)
 
     lf = pd.concat(lf)
     lf = optimize_dataframe(lf)
@@ -404,17 +473,30 @@ def main(in_dir: Path, ignore_list_path: Path, dictionary_path: Path, out_dir: P
     for metric in FSA_METRICS:
         fsa[metric] = fsa[metric].astype("float64[pyarrow]")
 
+    sssa_modes = pd.concat(sssa_modes, ignore_index=True)
+    sssa_participation = pd.concat(sssa_participation, ignore_index=True)
+
+    # real_part/imag_part are mode-level values that lived in the same raw CSV row as every
+    # per-generator participation column before melt_sssa_participation() exploded that row
+    # into one line per generator - this join just puts them back next to the participation
+    # values they originally sat beside. They're expected to repeat across every generator row
+    # sharing a (state, mode_id), not an artifact of the join.
+    sssa = sssa_participation.merge(sssa_modes, on=["state", "mode_id"], how="inner")
+
     logger.debug(f"LF\n{lf.dtypes}")
     logger.debug(f"TSA\n{tsa.dtypes}")
     logger.debug(f"FSA\n{fsa.dtypes}")
+    logger.debug(f"SSSA\n{sssa.dtypes}")
 
     lf.to_pickle(out_dir / "lf.pkl")
     tsa.to_pickle(out_dir / "tsa.pkl")
     fsa.to_pickle(out_dir / "fsa.pkl")
+    sssa.to_pickle(out_dir / "sssa.pkl")
 
     processed_dir = out_dir.parent / "processed"
     write_sqlite_table(tsa, processed_dir / "tsa.db", table="tsa")
     write_sqlite_table(fsa, processed_dir / "fsa.db", table="fsa")
+    write_sqlite_table(sssa, processed_dir / "sssa.db", table="sssa")
 
     topo_cols = filter_slovenian_topology_cols(dict_path=dictionary_path, lf_cols=lf.columns)
     joblib.dump(topo_cols, out_dir / "topology_cols.joblib.z")
