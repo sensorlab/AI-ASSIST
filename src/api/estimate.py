@@ -42,6 +42,9 @@ router = APIRouter(prefix="/api/v1", tags=["estimate"])
 
 @router.post("/estimate/tsa/by-generator", response_model=StateResponse)
 async def estimate_by_generator(req: StateRequest, request: Request) -> StateResponse:
+    """For each critical generator retrieved near the query state: location_likelihood
+    ranks the fault locations found by how strongly they're supported, and per_location
+    gives the full CCT estimate + supporting detail behind each one."""
     service: EstimationService = request.app.state.estimation_service
     try:
         service.ensure_columns(req.state.keys())
@@ -56,6 +59,9 @@ async def estimate_by_generator(req: StateRequest, request: Request) -> StateRes
 
 @router.post("/estimate/tsa/by-location", response_model=LocationStateResponse)
 async def estimate_by_location(req: StateRequest, request: Request) -> LocationStateResponse:
+    """The mirror image of by-generator: for each fault location retrieved near the query
+    state, crit_gen_likelihood ranks which critical generator is most likely there, and
+    per_crit_gen gives the same full per-generator detail."""
     service: EstimationService = request.app.state.estimation_service
     try:
         service.ensure_columns(req.state.keys())
@@ -70,6 +76,8 @@ async def estimate_by_location(req: StateRequest, request: Request) -> LocationS
 
 @router.post("/estimate/fsa/by-observed-generator", response_model=FsaStateResponse)
 async def estimate_fsa_by_observed_generator(req: StateRequest, request: Request) -> FsaStateResponse:
+    """Frequency stability (FSA), primary view: for each observed/measured generator, the
+    outcome per failed generator. Returns HTTP 501 if the active dataset has no FSA data."""
     service: EstimationService = request.app.state.estimation_service
     try:
         service.ensure_columns(req.state.keys())
@@ -86,6 +94,8 @@ async def estimate_fsa_by_observed_generator(req: StateRequest, request: Request
 
 @router.post("/estimate/fsa/by-failed-generator", response_model=FsaStateResponse)
 async def estimate_fsa_by_failed_generator(req: StateRequest, request: Request) -> FsaStateResponse:
+    """Frequency stability (FSA), secondary view: for each failed generator, the outcome
+    per observed/measured generator. Returns HTTP 501 if the active dataset has no FSA data."""
     service: EstimationService = request.app.state.estimation_service
     try:
         service.ensure_columns(req.state.keys())
@@ -102,6 +112,8 @@ async def estimate_fsa_by_failed_generator(req: StateRequest, request: Request) 
 
 @router.get("/columns")
 async def columns(request: Request) -> dict[str, Any]:
+    """The full list of grid-state feature columns this dataset expects in `state`, plus a
+    sample_state stub (all values True) showing the expected shape."""
     service: EstimationService = request.app.state.estimation_service
     return {
         "columns": service.columns,

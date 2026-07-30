@@ -16,7 +16,17 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     configure_logging()
-    app = FastAPI(lifespan=lifespan)
+    app = FastAPI(
+        lifespan=lifespan,
+        title="AI-ASSIST Estimation API",
+        description=(
+            "Real-time power-grid security assessment: given a live grid operating state, "
+            "retrieves the most similar historical/simulated states from a vector database "
+            "and uses their known transient-stability outcomes to estimate the Critical "
+            "Clearing Time (CCT). See each endpoint below for the by-generator vs "
+            "by-location report shapes."
+        ),
+    )
     app.include_router(estimate_router)
     return app
 
