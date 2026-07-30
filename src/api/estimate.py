@@ -15,10 +15,15 @@ class StateRequest(BaseModel):
     variant: SemanticVersion = SemanticVersion.parse("1.0.0")
     state: Mapping[str, float | None]
     exclude_uids: frozenset[str] = Field(default_factory=frozenset)
-    n_neighbors: int | None = Field(
+    max_states: int | None = Field(
         default=None,
         gt=0,
-        description="Number of nearest neighbors to retrieve from Qdrant. Defaults to the service's built-in limit.",
+        description=(
+            "Cap on the number of nearest states to retrieve from Qdrant (fewer may come "
+            "back if the topology-filtered candidate pool is smaller than this). Defaults "
+            "to the service's built-in limit when omitted - the response's inputs.max_states "
+            "always shows the actual value used, even when this was left unset."
+        ),
     )
 
 
@@ -40,6 +45,16 @@ class FsaStateResponse(BaseModel):
 router = APIRouter(prefix="/api/v1", tags=["estimate"])
 
 
+def _resolve_max_states(req: StateRequest, service: EstimationService) -> StateRequest:
+    """Returns req as-is if max_states was set explicitly, otherwise a copy with it filled
+    in from the service's actual default - so the echoed inputs in the response always show
+    what was actually queried, useful for debugging or later analysis, rather than a bare
+    None that doesn't say what limit was actually applied."""
+    if req.max_states is not None:
+        return req
+    return req.model_copy(update={"max_states": service.default_n_neighbors})
+
+
 @router.post("/estimate/tsa/by-generator", response_model=StateResponse)
 async def estimate_by_generator(req: StateRequest, request: Request) -> StateResponse:
     """For each critical generator retrieved near the query state: location_likelihood
@@ -49,12 +64,12 @@ async def estimate_by_generator(req: StateRequest, request: Request) -> StateRes
     try:
         service.ensure_columns(req.state.keys())
         outputs = service.estimate_by_generator(
-            state=req.state, exclude_uids=req.exclude_uids, n_neighbors=req.n_neighbors
+            state=req.state, exclude_uids=req.exclude_uids, n_neighbors=req.max_states
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    return StateResponse(inputs=req, outputs=outputs)
+    return StateResponse(inputs=_resolve_max_states(req, service), outputs=outputs)
 
 
 @router.post("/estimate/tsa/by-location", response_model=LocationStateResponse)
@@ -66,12 +81,12 @@ async def estimate_by_location(req: StateRequest, request: Request) -> LocationS
     try:
         service.ensure_columns(req.state.keys())
         outputs = service.estimate_by_location(
-            state=req.state, exclude_uids=req.exclude_uids, n_neighbors=req.n_neighbors
+            state=req.state, exclude_uids=req.exclude_uids, n_neighbors=req.max_states
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    return LocationStateResponse(inputs=req, outputs=outputs)
+    return LocationStateResponse(inputs=_resolve_max_states(req, service), outputs=outputs)
 
 
 @router.post("/estimate/fsa/by-observed-generator", response_model=FsaStateResponse)
@@ -82,14 +97,14 @@ async def estimate_fsa_by_observed_generator(req: StateRequest, request: Request
     try:
         service.ensure_columns(req.state.keys())
         outputs = service.estimate_by_observed_generator(
-            state=req.state, exclude_uids=req.exclude_uids, n_neighbors=req.n_neighbors
+            state=req.state, exclude_uids=req.exclude_uids, n_neighbors=req.max_states
         )
     except NotImplementedError as exc:
         raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    return FsaStateResponse(inputs=req, outputs=outputs)
+    return FsaStateResponse(inputs=_resolve_max_states(req, service), outputs=outputs)
 
 
 @router.post("/estimate/fsa/by-failed-generator", response_model=FsaStateResponse)
@@ -100,14 +115,14 @@ async def estimate_fsa_by_failed_generator(req: StateRequest, request: Request) 
     try:
         service.ensure_columns(req.state.keys())
         outputs = service.estimate_by_failed_generator(
-            state=req.state, exclude_uids=req.exclude_uids, n_neighbors=req.n_neighbors
+            state=req.state, exclude_uids=req.exclude_uids, n_neighbors=req.max_states
         )
     except NotImplementedError as exc:
         raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    return FsaStateResponse(inputs=req, outputs=outputs)
+    return FsaStateResponse(inputs=_resolve_max_states(req, service), outputs=outputs)
 
 
 @router.get("/columns")
