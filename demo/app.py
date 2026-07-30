@@ -66,19 +66,26 @@ def _location_type(location: str) -> str:
 
 
 def _build_neighbor_df(out: StateResponse) -> pd.DataFrame:
+    # Report has no group-level aggregate CCT anymore (deliberately - see Report's
+    # docstring in src/domain/estimation/models.py); "cct_pred" here is the CCT at the
+    # single most likely location (the first, highest-scored entry of location_likelihood,
+    # which is sorted descending), not a blended-across-locations figure.
     rows = []
     for crit_gen, report in out.outputs.items():
-        s = report.summary
-        for location, cct in s.cct_weighted_per_location.items():
+        top_location = next(iter(report.location_likelihood))
+        cct_pred = report.per_location[top_location].summary.cct_weighted
+        for location, lr in report.per_location.items():
             rows.append(
                 {
                     "Crit_gen": crit_gen,
-                    "CCT": cct,
+                    "CCT": lr.summary.cct_weighted,
                     "Type": _location_type(location),
                     "Location": location,
-                    "weight_mass": round(s.stats.location_weight_mass.get(location, float("nan")), 4),
-                    "n_neighbors": s.stats.location_counts.get(location, 0),
-                    "cct_pred": s.cct_weighted,
+                    "weight_mass": round(lr.summary.stats.weight_mass, 4),
+                    "n_neighbors": lr.summary.stats.n,
+                    "likelihood": round(report.location_likelihood[location], 4),
+                    "is_most_likely": location == top_location,
+                    "cct_pred": cct_pred,
                 }
             )
     return pd.DataFrame(rows)
@@ -94,7 +101,7 @@ def _strip_chart(neigh: pd.DataFrame) -> go.Figure:
         x="Crit_gen",
         y="CCT",
         color="Type",
-        hover_data=["Location", "weight_mass", "n_neighbors", "cct_pred"],
+        hover_data=["Location", "weight_mass", "n_neighbors", "likelihood", "is_most_likely", "cct_pred"],
         category_orders={"Crit_gen": sorted_order},
         color_discrete_map={"bus": "#1f77b4", "line": "#2ca02c"},
         template="plotly_white",
@@ -195,14 +202,17 @@ with tab_results:
             st.subheader("Prediction summary per generator")
             summary_rows = []
             for crit_gen, report in out.outputs.items():
-                s = report.summary
+                top_location = next(iter(report.location_likelihood))
+                top_report = report.per_location[top_location]
                 summary_rows.append(
                     {
                         "Crit_gen": crit_gen,
-                        "CCT predicted": round(s.cct_weighted, 4),
-                        "n neighbors": s.stats.n,
-                        "n_eff": round(s.stats.n_eff, 1),
-                        "dist mean": round(s.stats.distances.get("mean", float("nan")), 4),
+                        "Most likely location": top_location,
+                        "Likelihood": round(report.location_likelihood[top_location], 4),
+                        "CCT predicted": round(top_report.summary.cct_weighted, 4),
+                        "n neighbors": top_report.summary.stats.n,
+                        "n_eff": round(top_report.summary.stats.n_eff, 1),
+                        "dist mean": round(top_report.summary.stats.distances.get("mean", float("nan")), 4),
                     }
                 )
             st.dataframe(pd.DataFrame(summary_rows).set_index("Crit_gen"), use_container_width=True)

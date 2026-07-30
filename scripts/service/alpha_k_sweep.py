@@ -102,15 +102,16 @@ def _evaluate_point(
             crit_gen_true = normalize_label(row["Crit_gen"])
 
             pred = outputs_by_crit_gen.get(crit_gen_true)
-            summary = pred.summary if pred is not None else None
-            cct_by_location = (
-                {normalize_label(k): v for k, v in summary.cct_weighted_per_location.items()}
-                if summary is not None
-                else {}
-            )
-            cct_pred = cct_by_location.get(location_true)
-            if cct_pred is None and summary is not None:
-                cct_pred = summary.cct_weighted
+            # Report is flat now (no group-level summary/stats blending every location
+            # together - see Report's docstring in src/domain/estimation/models.py); fall
+            # back to the single most-likely location's CCT (first entry of
+            # location_likelihood, sorted descending) when the true location isn't covered,
+            # instead of a blended-across-locations aggregate.
+            per_location = {normalize_label(k): v for k, v in pred.per_location.items()} if pred is not None else {}
+            cct_pred = per_location[location_true].summary.cct_weighted if location_true in per_location else None
+            if cct_pred is None and pred is not None and pred.location_likelihood:
+                top_location = next(iter(pred.location_likelihood))
+                cct_pred = pred.per_location[top_location].summary.cct_weighted
 
             rows.append({"cct_true": row["CCT"], "cct_pred": cct_pred})
 

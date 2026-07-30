@@ -11,13 +11,12 @@ from src.domain.estimation.models import (
     FsaReport,
     FsaReportNeighbor,
     FsaReportSummary,
+    LocationGroupReport,
     LocationReport,
     LocationReportStats,
     LocationReportSummary,
     Report,
     ReportNeighbor,
-    ReportStats,
-    ReportSummary,
     Stats,
 )
 from src.domain.estimation.service import EstimationService
@@ -121,19 +120,21 @@ def _service_with_sssa() -> EstimationService:
     )
 
 
-def _report() -> Report:
-    return Report(
-        summary=ReportSummary(
+def _location_report() -> LocationReport:
+    return LocationReport(
+        summary=LocationReportSummary(
             cct_weighted=1.5,
-            cct_weighted_per_location={"L1": 1.5},
-            stats=ReportStats(
-                location_weight_mass={"L1": 1.0},
+            stats=LocationReportStats(
+                weight_mass=1.0,
+                weight_mass_mean=1.0,
+                cct_weighted_std=None,
+                cct_distance_correlation=None,
+                cct_quantiles=None,
                 neighborhood_compactness=None,
                 n=1,
                 n_eff=1.0,
                 n_unique_states=1,
                 distances={"min": 0.0, "mean": 0.0, "median": 0.0, "spread": 0.0, "norm": 0.0},
-                location_counts={"L1": 1},
             ),
         ),
         included_state_ids=["s1"],
@@ -151,21 +152,21 @@ def _report() -> Report:
     )
 
 
-def _location_report() -> LocationReport:
-    return LocationReport(
-        summary=LocationReportSummary(
-            cct_weighted=1.5,
-            stats=LocationReportStats(
-                weight_mass=1.0,
-                neighborhood_compactness=None,
-                n=1,
-                n_eff=1.0,
-                n_unique_states=1,
-                distances={"min": 0.0, "mean": 0.0, "median": 0.0, "spread": 0.0, "norm": 0.0},
-            ),
-        ),
+def _report() -> Report:
+    return Report(
+        location_likelihood={"L1": 1.0},
+        per_location={"L1": _location_report()},
         included_state_ids=["s1"],
-        per_neighbor=_report().per_neighbor,
+        neighbors=_location_report().per_neighbor,
+    )
+
+
+def _location_group_report() -> LocationGroupReport:
+    return LocationGroupReport(
+        crit_gen_likelihood={"G1": 1.0},
+        per_crit_gen={"G1": _location_report()},
+        included_state_ids=["s1"],
+        neighbors=_location_report().per_neighbor,
     )
 
 
@@ -197,7 +198,7 @@ class _RouteService:
         return {"G1": _report()}
 
     def estimate_by_location(self, *, state, exclude_uids, n_neighbors=None):
-        return {"L1": {"G1": _location_report()}}
+        return {"L1": _location_group_report()}
 
     def estimate_by_observed_generator(self, *, state, exclude_uids, n_neighbors=None):
         return {"MG1": {"FG1": _fsa_report()}}
@@ -223,7 +224,17 @@ class EstimationServiceEndpointTests(unittest.TestCase):
 
         self.assertEqual(by_generator, legacy_alias)
         self.assertEqual(set(by_generator), {"G1", "G2"})
-        self.assertEqual(by_generator["G1"].summary.stats.location_counts, {"L1": 2, "L2": 1})
+        self.assertEqual(
+            {loc: lr.summary.stats.n for loc, lr in by_generator["G1"].per_location.items()},
+            {"L1": 2, "L2": 1},
+        )
+
+        # location_likelihood is sorted descending by weight_mass (a probability-like score
+        # summing to 1.0 across the group) - L1 (2 close neighbors) must outrank L2 (1
+        # farther neighbor).
+        location_likelihood = by_generator["G1"].location_likelihood
+        self.assertEqual(list(location_likelihood), ["L1", "L2"])
+        self.assertAlmostEqual(sum(location_likelihood.values()), 1.0)
 
     def test_n_neighbors_is_forwarded_to_db_query_and_defaults_to_none(self):
         db = _FakeDb()
@@ -249,9 +260,9 @@ class EstimationServiceEndpointTests(unittest.TestCase):
         by_location = service.estimate_by_location({"x": 0.0}, exclude_uids=[])
 
         self.assertEqual(set(by_location), {"L1", "L2"})
-        self.assertEqual(set(by_location["L1"]), {"G1", "G2"})
+        self.assertEqual(set(by_location["L1"].per_crit_gen), {"G1", "G2"})
 
-        l1_g1 = by_location["L1"]["G1"]
+        l1_g1 = by_location["L1"].per_crit_gen["G1"]
         expected_cct = (1.0 + math.exp(-1.0) * 3.0) / (1.0 + math.exp(-1.0))
         self.assertAlmostEqual(l1_g1.summary.cct_weighted, expected_cct)
         self.assertEqual(l1_g1.included_state_ids, ["s1", "s2"])
@@ -261,6 +272,50 @@ class EstimationServiceEndpointTests(unittest.TestCase):
         generator_weight_sum = 1.0 + math.exp(-1.0) + math.exp(-3.0)
         expected_location_mass = (1.0 + math.exp(-1.0)) / generator_weight_sum
         self.assertAlmostEqual(l1_g1.summary.stats.weight_mass, expected_location_mass)
+        self.assertAlmostEqual(l1_g1.summary.stats.weight_mass_mean, expected_location_mass / 2)
+
+        # cct_weighted_std: weighted std of {CCT=1.0, CCT=3.0} under the same qw_norm used
+        # for expected_cct above - the two neighbors disagree substantially on CCT (1.0 vs
+        # 3.0s), so this should be a large, non-trivial spread, not near zero.
+        qw = [1.0 / (1.0 + math.exp(-1.0)), math.exp(-1.0) / (1.0 + math.exp(-1.0))]
+        expected_std = math.sqrt(sum(w * (cct - expected_cct) ** 2 for w, cct in zip(qw, [1.0, 3.0], strict=True)))
+        self.assertAlmostEqual(l1_g1.summary.stats.cct_weighted_std, expected_std)
+
+        # L2/G1 has a single neighbor (s3) - std is undefined, not misleadingly 0.0.
+        l2_g1 = by_location["L2"].per_crit_gen["G1"]
+        self.assertIsNone(l2_g1.summary.stats.cct_weighted_std)
+        self.assertIsNone(l2_g1.summary.stats.cct_distance_correlation)
+        self.assertIsNone(l2_g1.summary.stats.cct_quantiles)
+
+        # cct_distance_correlation: with exactly 2 points, a weighted correlation is always
+        # a perfect +-1 (two points always determine a line exactly) - here CCT increases
+        # with distance (s1 d=0/CCT=1.0, s2 d=1/CCT=3.0), so it must be +1, confirming the
+        # sign/formula rather than just "some strong correlation."
+        self.assertAlmostEqual(l1_g1.summary.stats.cct_distance_correlation, 1.0)
+
+        # cct_quantiles: q10 lands on the closer/heavier-weighted neighbor's CCT (1.0), q90
+        # on the farther/lighter one's (3.0) - the two extremes of what's actually present.
+        self.assertAlmostEqual(l1_g1.summary.stats.cct_quantiles["q10"], 1.0)
+        self.assertAlmostEqual(l1_g1.summary.stats.cct_quantiles["q90"], 3.0)
+
+        # crit_gen_likelihood: raw (never renormalized) kernel mass per generator at L1 -
+        # G1's two neighbors (s1 d=0, s2 d=1) vs G2's one neighbor (s4 d=0) - G1's mass
+        # (1 + exp(-1)) exceeds G2's (1), so G1 must rank first despite weight_mass (a
+        # different, non-comparable-across-generators quantity) not being usable here.
+        raw_g1 = 1.0 + math.exp(-1.0)
+        raw_g2 = 1.0
+        total_raw = raw_g1 + raw_g2
+        location_likelihood = by_location["L1"].crit_gen_likelihood
+        self.assertEqual(list(location_likelihood), ["G1", "G2"])
+        self.assertAlmostEqual(location_likelihood["G1"], raw_g1 / total_raw)
+        self.assertAlmostEqual(location_likelihood["G2"], raw_g2 / total_raw)
+        self.assertAlmostEqual(sum(location_likelihood.values()), 1.0)
+
+        # L2 has only one generator (G1) - trivially the sole, most-likely entry.
+        self.assertEqual(by_location["L2"].crit_gen_likelihood, {"G1": 1.0})
+
+        # Top-level neighbors/included_state_ids are location-wide (across all generators).
+        self.assertEqual(by_location["L1"].included_state_ids, ["s1", "s2", "s4"])
 
     def test_estimate_fsa_raises_not_implemented_when_fsa_absent(self):
         service = _service()
@@ -394,7 +449,7 @@ class EstimationRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(set(response.json()["outputs"]), {"L1"})
-        self.assertEqual(set(response.json()["outputs"]["L1"]), {"G1"})
+        self.assertEqual(set(response.json()["outputs"]["L1"]["per_crit_gen"]), {"G1"})
 
     def test_fsa_by_observed_generator_endpoint_returns_observed_first_response(self):
         response = self.client.post(

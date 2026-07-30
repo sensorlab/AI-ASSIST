@@ -87,15 +87,21 @@ def _process_state(
         crit_gen_true = normalize_label(row["Crit_gen"])
 
         pred = outputs_by_crit_gen.get(crit_gen_true)
-        summary = pred.summary if pred is not None else None
-        stats = summary.stats if summary is not None else None
-        distances = stats.distances if stats is not None else {}
-        cct_by_location = (
-            {normalize_label(k): v for k, v in summary.cct_weighted_per_location.items()} if summary is not None else {}
-        )
-        location_weight_mass = (
-            {normalize_label(k): v for k, v in stats.location_weight_mass.items()} if stats is not None else {}
-        )
+        # Report is flat now (no group-level summary/stats blending every location together -
+        # see Report's docstring in src/domain/estimation/models.py), so every diagnostic
+        # below is sourced from the true location's own LocationReport within per_location.
+        per_location = {normalize_label(k): v for k, v in pred.per_location.items()} if pred is not None else {}
+        location_true_report = per_location.get(location_true)
+        location_stats = location_true_report.summary.stats if location_true_report is not None else None
+        distances = location_stats.distances if location_stats is not None else {}
+
+        # No more group-level aggregate CCT to fall back on when the true location isn't
+        # covered - fall back to the single most-likely location's CCT instead (the first
+        # entry of location_likelihood, which is sorted descending by score).
+        top_location_report = None
+        if pred is not None and pred.location_likelihood:
+            top_location = next(iter(pred.location_likelihood))
+            top_location_report = pred.per_location.get(top_location)
 
         rows.append(
             {
@@ -104,12 +110,19 @@ def _process_state(
                 "cct_true": row["CCT"],
                 "crit_gen_true": crit_gen_true,
                 "location_true": location_true,
-                "cct_weighted_per_location": cct_by_location.get(location_true),
-                "cct_weighted_global": summary.cct_weighted if summary is not None else None,
-                "location_weight_mass": location_weight_mass.get(location_true),
-                "n_neighbors": stats.n if stats is not None else 0,
-                "n_eff": stats.n_eff if stats is not None else None,
-                "neighborhood_compactness": (stats.neighborhood_compactness if stats is not None else None),
+                "cct_weighted_per_location": (
+                    location_true_report.summary.cct_weighted if location_true_report is not None else None
+                ),
+                "cct_weighted_global": (
+                    top_location_report.summary.cct_weighted if top_location_report is not None else None
+                ),
+                "location_weight_mass": (location_stats.weight_mass if location_stats is not None else None),
+                "n_neighbors": location_stats.n if location_stats is not None else 0,
+                "n_eff": location_stats.n_eff if location_stats is not None else None,
+                "neighborhood_compactness": (
+                    location_stats.neighborhood_compactness if location_stats is not None else None
+                ),
+                "cct_weighted_std": (location_stats.cct_weighted_std if location_stats is not None else None),
                 "distance_min": distances.get("min"),
                 "distance_mean": distances.get("mean"),
                 "distance_median": distances.get("median"),
@@ -215,6 +228,10 @@ def main() -> None:
         "n_eff": True,
         "n_neighbors": True,
         "neighborhood_compactness": True,
+        # Lower cct_weighted_std means the neighbors agree more on the outcome - i.e. more
+        # confidence, same direction as the distance metrics below, not the weight/n_eff
+        # ones above.
+        "cct_weighted_std": False,
         "distance_min": False,
         "distance_mean": False,
         "distance_median": False,

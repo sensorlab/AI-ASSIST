@@ -109,40 +109,45 @@ def _process_state(
         if leaked_uids:
             raise RuntimeError(f"Data leakage: excluded states `{leaked_uids}` found in `{pred.included_state_ids=}`")
 
-        summary = pred.summary if pred is not None else None
-        stats = summary.stats if summary is not None else None
-        distances = stats.distances if stats is not None else {}
-        cct_by_location = (
-            {normalize_label(key): value for key, value in summary.cct_weighted_per_location.items()}
-            if summary is not None
-            else {}
-        )
-        location_weight_mass = (
-            {normalize_label(key): value for key, value in stats.location_weight_mass.items()}
-            if stats is not None
-            else {}
-        )
-        location_counts = (
-            {normalize_label(key): value for key, value in stats.location_counts.items()} if stats is not None else {}
-        )
+        # Report is flat now (no group-level summary/stats blending every location together
+        # - see Report's docstring in src/domain/estimation/models.py), so every diagnostic
+        # below is sourced from the true location's own LocationReport within per_location.
+        per_location = {normalize_label(loc): lr for loc, lr in pred.per_location.items()} if pred is not None else {}
+        location_true_report = per_location.get(location_true)
+        location_stats = location_true_report.summary.stats if location_true_report is not None else None
+        distances = location_stats.distances if location_stats is not None else {}
 
-        cct_weighted_per_location = cct_by_location.get(location_true)
+        # No more group-level aggregate CCT to fall back on when the true location isn't
+        # covered - fall back to the single most-likely location's CCT instead (the first
+        # entry of location_likelihood, which is sorted descending by score).
+        top_location_report = None
+        if pred is not None and pred.location_likelihood:
+            top_location = next(iter(pred.location_likelihood))
+            top_location_report = pred.per_location.get(top_location)
+
+        cct_weighted_per_location = (
+            location_true_report.summary.cct_weighted if location_true_report is not None else None
+        )
         report = {
             "state": state_id,
             "state_norm": state_id_norm,
             "cct_true": row["CCT"],
             "crit_gen_true": crit_gen_true,
             "location_true": location_true,
-            "prediction_summary": summary,
+            "prediction_summary": pred,
             "cct_weighted_per_location": cct_weighted_per_location,
-            "cct_weighted_global": summary.cct_weighted if summary is not None else None,
+            "cct_weighted_global": (
+                top_location_report.summary.cct_weighted if top_location_report is not None else None
+            ),
             "has_crit_gen_prediction": pred is not None,
             "has_location_prediction": cct_weighted_per_location is not None,
-            "location_weight_mass": location_weight_mass.get(location_true),
-            "location_neighbor_count": location_counts.get(location_true, 0),
-            "n_neighbors": stats.n if stats is not None else 0,
-            "n_eff": stats.n_eff if stats is not None else None,
-            "neighborhood_compactness": (stats.neighborhood_compactness if stats is not None else None),
+            "location_weight_mass": (location_stats.weight_mass if location_stats is not None else None),
+            "location_neighbor_count": (location_stats.n if location_stats is not None else 0),
+            "n_neighbors": location_stats.n if location_stats is not None else 0,
+            "n_eff": location_stats.n_eff if location_stats is not None else None,
+            "neighborhood_compactness": (
+                location_stats.neighborhood_compactness if location_stats is not None else None
+            ),
             "distance_min": distances.get("min"),
             "distance_mean": distances.get("mean"),
             "distance_median": distances.get("median"),
