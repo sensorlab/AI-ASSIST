@@ -189,6 +189,7 @@ def _fsa_report() -> FsaReport:
 
 class _RouteService:
     columns = ["x"]
+    default_n_neighbors = 100
 
     def ensure_columns(self, request_cols):
         if set(request_cols) != {"x"}:
@@ -440,6 +441,24 @@ class EstimationRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(set(response.json()["outputs"]), {"G1"})
+
+    def test_max_states_echoes_resolved_default_when_omitted(self):
+        response = self.client.post(
+            "/api/v1/estimate/tsa/by-generator",
+            json={"variant": "1.0.0", "state": {"x": 0.0}, "exclude_uids": []},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["inputs"]["max_states"], _RouteService.default_n_neighbors)
+
+    def test_max_states_echoes_caller_value_when_provided(self):
+        response = self.client.post(
+            "/api/v1/estimate/tsa/by-generator",
+            json={"variant": "1.0.0", "state": {"x": 0.0}, "exclude_uids": [], "max_states": 7},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["inputs"]["max_states"], 7)
 
     def test_by_location_endpoint_returns_location_first_response(self):
         response = self.client.post(

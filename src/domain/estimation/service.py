@@ -510,6 +510,13 @@ class EstimationService:
         # support it; estimate_sssa_by_generator() raises NotImplementedError.
         self.sssa = sssa
 
+    @property
+    def default_n_neighbors(self) -> int:
+        """The cap actually applied when a caller doesn't specify one - exposed so the API
+        layer can echo the resolved value back in a response instead of a bare None,
+        without needing to know about DatabaseQdrant's internals."""
+        return self.db.default_limit
+
     def ensure_columns(self, request_cols: Iterable[str]) -> None:
         inputs_cols = set(self.columns)
         request_cols = set(request_cols)
