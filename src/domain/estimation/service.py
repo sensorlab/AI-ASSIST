@@ -17,13 +17,12 @@ from src.domain.estimation.models import (
     FsaReport,
     FsaReportNeighbor,
     FsaReportSummary,
+    LocationGroupReport,
     LocationReport,
     LocationReportStats,
     LocationReportSummary,
     Report,
     ReportNeighbor,
-    ReportStats,
-    ReportSummary,
     SssaNeighbor,
     Stats,
 )
@@ -450,6 +449,18 @@ def _distance_summary(qds: np.ndarray) -> dict[str, float]:
     }
 
 
+def _weighted_quantile(values: np.ndarray, weights: np.ndarray, q: float) -> float:
+    """Weighted q-quantile via cumulative-weight crossing (sort by value, walk the
+    cumulative weight until it reaches q) - not numpy/scipy's unweighted percentile, since
+    neighbors don't all contribute equally. weights need not already sum to 1."""
+    order = np.argsort(values)
+    sorted_values = values[order]
+    cumulative_weight = np.cumsum(weights[order])
+    cumulative_weight = cumulative_weight / cumulative_weight[-1]
+    idx = min(int(np.searchsorted(cumulative_weight, q)), len(sorted_values) - 1)
+    return float(sorted_values[idx])
+
+
 def _neighborhood_compactness(X_neighbors: np.ndarray, *, crit_gen: str, alpha: float = 1.0) -> float | None:
     """Normalized pairwise compactness within one critical-generator group.
 
@@ -650,78 +661,117 @@ class EstimationService:
     def _included_state_ids(subset: pd.DataFrame) -> list[str]:
         return list(dict.fromkeys(str(s) for s in subset["state"].dropna()))
 
-    def _reports_by_generator(
+    def _weight_by_crit_gen(
         self,
         lf_tsa: pd.DataFrame,
         embed_cols: list[str],
         X_query: np.ndarray,
         *,
         alpha: float = 1.0,
-    ) -> tuple[dict[str, Report], pd.DataFrame]:
-        reports: dict[str, Report] = {}
+    ) -> pd.DataFrame:
+        """Weights every Crit_gen group (via _weight_group) and returns the concatenated
+        weighted dataframe - shared by estimate_by_generator and estimate_by_location,
+        neither of which needs anything more from this step (no per-location or per-group
+        report objects are built here, since which of those either caller actually wants
+        differs, and building both unconditionally would waste work)."""
         weighted_subsets: list[pd.DataFrame] = []
 
         for crit_gen_value, subset in lf_tsa.groupby(by="Crit_gen", dropna=False):
             crit_gen = str(crit_gen_value)
-            subset, qw_norm, compactness = self._weight_group(
-                subset, embed_cols, X_query, group_name=crit_gen, alpha=alpha
-            )
-            cct_neighbors = subset["CCT"].to_numpy(dtype=np.float64)
-            X_neighbors = subset[embed_cols].to_numpy(dtype=np.float64)
-            qds = subset["distance"].to_numpy(dtype=np.float64)
-            _ensure_finite("cct_neighbors", cct_neighbors, crit_gen=crit_gen)
-
+            subset, _, _ = self._weight_group(subset, embed_cols, X_query, group_name=crit_gen, alpha=alpha)
             weighted_subsets.append(subset)
 
-            location_counts: dict[str, int] = {}
-            for location in subset["Location"]:
-                loc = str(location)
-                location_counts[loc] = location_counts.get(loc, 0) + 1
-
-            # Aggregate weighted CCT per location. We re-normalize weights inside
-            # each location so every location gets an internally consistent mean.
-            weighted_cct_per_location: dict[str, float] = {}
-            location_weight_mass: dict[str, float] = {}
-            for location, group in subset.groupby("Location", dropna=False):
-                loc = str(location)
-                w = group["weight"].to_numpy(dtype=np.float64)
-                c = group["CCT"].to_numpy(dtype=np.float64)
-
-                _ensure_finite("location_weights", w, crit_gen=crit_gen)
-                _ensure_finite("location_cct", c, crit_gen=crit_gen)
-
-                w_sum = float(w.sum())
-                location_weight_mass[loc] = w_sum
-
-                if not np.isfinite(w_sum) or w_sum <= 0.0:
-                    weighted_cct_per_location[loc] = float(c.mean())
-                else:
-                    weighted_cct_per_location[loc] = float(np.sum((w / w_sum) * c))
-
-            reports[crit_gen] = Report(
-                summary=ReportSummary(
-                    cct_weighted=float(np.sum(qw_norm * cct_neighbors)),
-                    cct_weighted_per_location=weighted_cct_per_location,
-                    stats=ReportStats(
-                        location_weight_mass=location_weight_mass,
-                        neighborhood_compactness=compactness,
-                        n=int(X_neighbors.shape[0]),
-                        # Effective number of contributing simulation records in this Crit_gen
-                        # group, not the number of unique pre-fault states.
-                        n_eff=_effective_sample_size(qw_norm),
-                        n_unique_states=int(subset["state"].nunique()),
-                        distances=_distance_summary(qds),
-                        location_counts=location_counts,
-                    ),
-                ),
-                included_state_ids=self._included_state_ids(subset),
-                per_neighbor=self._build_per_neighbor(subset),
-            )
-
         if not weighted_subsets:
-            return reports, lf_tsa.iloc[0:0].copy()
+            return lf_tsa.iloc[0:0].copy()
 
-        return reports, pd.concat(weighted_subsets, axis=0)
+        return pd.concat(weighted_subsets, axis=0)
+
+    def _build_location_report(
+        self,
+        subset: pd.DataFrame,
+        embed_cols: list[str],
+        *,
+        group_name: str,
+        alpha: float = 1.0,
+    ) -> LocationReport:
+        """Builds one LocationReport for a single (location, crit_gen) subset - shared by
+        estimate_by_generator (per_location entries) and estimate_by_location (its
+        top-level nested reports); both describe the exact same kind of subset, just
+        indexed in transposed order. subset must already carry Crit_gen-group-normalized
+        'weight'/'distance' columns (from _weight_by_crit_gen); weights are re-normalized
+        here within this narrower (location, crit_gen) group so the group gets an
+        internally consistent weighted CCT."""
+        subset = subset.copy()
+
+        w = subset["weight"].to_numpy(dtype=np.float64)
+        c = subset["CCT"].to_numpy(dtype=np.float64)
+        qds = subset["distance"].to_numpy(dtype=np.float64)
+        X_neighbors = subset[embed_cols].to_numpy(dtype=np.float64)
+
+        _ensure_finite("location_weights", w, crit_gen=group_name)
+        _ensure_finite("location_cct", c, crit_gen=group_name)
+        _ensure_finite("location_distances", qds, crit_gen=group_name)
+        _ensure_finite("location_neighbors", X_neighbors, crit_gen=group_name)
+
+        weight_mass = float(w.sum())
+        if not np.isfinite(weight_mass) or weight_mass <= 0.0:
+            qw_norm = np.full(w.shape, 1.0 / w.size, dtype=np.float64)
+            cct_weighted = float(c.mean())
+        else:
+            qw_norm = w / weight_mass
+            cct_weighted = float(np.sum(qw_norm * c))
+
+        _ensure_finite("location_normalized_weights", qw_norm, crit_gen=group_name)
+        subset["weight"] = qw_norm
+
+        n = int(X_neighbors.shape[0])
+        # Weighted std of CCT among this group's neighbors - a different question from
+        # neighborhood_compactness (feature-space clustering): do the neighbors agree on the
+        # outcome, not just look similar as inputs? None below n=2, same convention as
+        # neighborhood_compactness, since a single neighbor's spread (0.0) would misleadingly
+        # read as high confidence rather than no data to compare against.
+        cct_weighted_std = float(np.sqrt(np.sum(qw_norm * (c - cct_weighted) ** 2))) if n > 1 else None
+
+        # Does CCT actually vary smoothly with distance in this neighborhood, or is it more
+        # like scatter? None whenever undefined (n<=1, or distance/CCT has zero variance
+        # within the group), not just when n<=1 like the other two - a correlation needs
+        # actual variance on both sides to be meaningful, not just enough points.
+        cct_distance_correlation: float | None = None
+        if n > 1 and cct_weighted_std is not None and cct_weighted_std > 0:
+            distance_mean = float(np.sum(qw_norm * qds))
+            distance_var = float(np.sum(qw_norm * (qds - distance_mean) ** 2))
+            if distance_var > 0:
+                covariance = float(np.sum(qw_norm * (qds - distance_mean) * (c - cct_weighted)))
+                cct_distance_correlation = covariance / float(np.sqrt(distance_var * cct_weighted_std**2))
+
+        # Weighted 10th/90th percentile of CCT - a shape-aware complement to
+        # cct_weighted_std, which assumes symmetric spread; an outlier neighbor could
+        # instead skew the distribution one way.
+        cct_quantiles = (
+            {"q10": _weighted_quantile(c, qw_norm, 0.10), "q90": _weighted_quantile(c, qw_norm, 0.90)}
+            if n > 1
+            else None
+        )
+
+        return LocationReport(
+            summary=LocationReportSummary(
+                cct_weighted=cct_weighted,
+                stats=LocationReportStats(
+                    weight_mass=weight_mass,
+                    weight_mass_mean=weight_mass / n,
+                    cct_weighted_std=cct_weighted_std,
+                    cct_distance_correlation=cct_distance_correlation,
+                    cct_quantiles=cct_quantiles,
+                    neighborhood_compactness=_neighborhood_compactness(X_neighbors, crit_gen=group_name, alpha=alpha),
+                    n=n,
+                    n_eff=_effective_sample_size(qw_norm),
+                    n_unique_states=int(subset["state"].nunique()),
+                    distances=_distance_summary(qds),
+                ),
+            ),
+            included_state_ids=self._included_state_ids(subset),
+            per_neighbor=self._build_per_neighbor(subset),
+        )
 
     def estimate_by_generator(
         self,
@@ -738,8 +788,47 @@ class EstimationService:
         if lf_tsa.empty:
             return {}
 
-        reports, _ = self._reports_by_generator(lf_tsa, embed_cols, X_query, alpha=alpha)
+        weighted_lf_tsa = self._weight_by_crit_gen(lf_tsa, embed_cols, X_query, alpha=alpha)
+
+        reports: dict[str, Report] = {}
+        for crit_gen_value, subset in weighted_lf_tsa.groupby(by="Crit_gen", dropna=False):
+            crit_gen = str(crit_gen_value)
+
+            per_location: dict[str, LocationReport] = {}
+            for location_value, loc_subset in subset.groupby("Location", dropna=False):
+                location = str(location_value)
+                per_location[location] = self._build_location_report(
+                    loc_subset, embed_cols, group_name=f"{crit_gen}/{location}", alpha=alpha
+                )
+
+            location_likelihood = dict(
+                sorted(
+                    ((loc, lr.summary.stats.weight_mass) for loc, lr in per_location.items()),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )
+            )
+
+            reports[crit_gen] = Report(
+                location_likelihood=location_likelihood,
+                per_location=per_location,
+                included_state_ids=self._included_state_ids(subset),
+                neighbors=self._build_per_neighbor(subset),
+            )
+
         return reports
+
+    @staticmethod
+    def _raw_kernel_mass(neighbors: list[ReportNeighbor], *, alpha: float) -> float:
+        """Sum of K(distance) over raw, never-renormalized query-to-neighbor distances -
+        comparable across different generators' groups, unlike weight_mass (normalized
+        within each generator's own group, so it isn't). Used only to rank
+        crit_gen_likelihood; never fed into cct_weighted or any other LocationReport
+        field, so it doesn't disturb the cross-endpoint LocationReport invariant."""
+        if not neighbors:
+            return 0.0
+        distances = np.array([n.distance for n in neighbors], dtype=np.float64)
+        return float(np.sum(K(distances, alpha)))
 
     def estimate_by_location(
         self,
@@ -747,7 +836,7 @@ class EstimationService:
         exclude_uids: Iterable[str],
         n_neighbors: int | None = None,
         alpha: float = 1.0,
-    ) -> dict[str, dict[str, LocationReport]]:
+    ) -> dict[str, LocationGroupReport]:
         lf_tsa, embed_cols, X_query = self._query_enriched_neighbors(
             state=state,
             exclude_uids=exclude_uids,
@@ -756,57 +845,37 @@ class EstimationService:
         if lf_tsa.empty:
             return {}
 
-        _, weighted_lf_tsa = self._reports_by_generator(lf_tsa, embed_cols, X_query, alpha=alpha)
-        reports: dict[str, dict[str, LocationReport]] = {}
+        weighted_lf_tsa = self._weight_by_crit_gen(lf_tsa, embed_cols, X_query, alpha=alpha)
+        reports: dict[str, LocationGroupReport] = {}
 
-        for (location_value, crit_gen_value), subset in weighted_lf_tsa.groupby(
-            by=["Location", "Crit_gen"],
-            dropna=False,
-        ):
+        for location_value, loc_subset in weighted_lf_tsa.groupby(by="Location", dropna=False):
             location = str(location_value)
-            crit_gen = str(crit_gen_value)
-            group_name = f"{location}/{crit_gen}"
-            subset = subset.copy()
 
-            w = subset["weight"].to_numpy(dtype=np.float64)
-            c = subset["CCT"].to_numpy(dtype=np.float64)
-            qds = subset["distance"].to_numpy(dtype=np.float64)
-            X_neighbors = subset[embed_cols].to_numpy(dtype=np.float64)
+            per_crit_gen: dict[str, LocationReport] = {}
+            for crit_gen_value, subset in loc_subset.groupby(by="Crit_gen", dropna=False):
+                crit_gen = str(crit_gen_value)
+                per_crit_gen[crit_gen] = self._build_location_report(
+                    subset, embed_cols, group_name=f"{location}/{crit_gen}", alpha=alpha
+                )
 
-            _ensure_finite("location_generator_weights", w, crit_gen=group_name)
-            _ensure_finite("location_generator_cct", c, crit_gen=group_name)
-            _ensure_finite("location_generator_distances", qds, crit_gen=group_name)
-            _ensure_finite("location_generator_neighbors", X_neighbors, crit_gen=group_name)
-
-            weight_mass = float(w.sum())
-            if not np.isfinite(weight_mass) or weight_mass <= 0.0:
-                qw_norm = np.full(w.shape, 1.0 / w.size, dtype=np.float64)
-                cct_weighted = float(c.mean())
-            else:
-                qw_norm = w / weight_mass
-                cct_weighted = float(np.sum(qw_norm * c))
-
-            _ensure_finite("location_generator_normalized_weights", qw_norm, crit_gen=group_name)
-            subset["weight"] = qw_norm
-
-            reports.setdefault(location, {})[crit_gen] = LocationReport(
-                summary=LocationReportSummary(
-                    cct_weighted=cct_weighted,
-                    stats=LocationReportStats(
-                        weight_mass=weight_mass,
-                        neighborhood_compactness=_neighborhood_compactness(
-                            X_neighbors,
-                            crit_gen=group_name,
-                            alpha=alpha,
-                        ),
-                        n=int(X_neighbors.shape[0]),
-                        n_eff=_effective_sample_size(qw_norm),
-                        n_unique_states=int(subset["state"].nunique()),
-                        distances=_distance_summary(qds),
+            raw_mass = {cg: self._raw_kernel_mass(lr.per_neighbor, alpha=alpha) for cg, lr in per_crit_gen.items()}
+            total_mass = sum(raw_mass.values())
+            crit_gen_likelihood = dict(
+                sorted(
+                    (
+                        (cg, mass / total_mass if total_mass > 0.0 else 1.0 / len(raw_mass))
+                        for cg, mass in raw_mass.items()
                     ),
-                ),
-                included_state_ids=self._included_state_ids(subset),
-                per_neighbor=self._build_per_neighbor(subset),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )
+            )
+
+            reports[location] = LocationGroupReport(
+                crit_gen_likelihood=crit_gen_likelihood,
+                per_crit_gen=per_crit_gen,
+                included_state_ids=self._included_state_ids(loc_subset),
+                neighbors=self._build_per_neighbor(loc_subset),
             )
 
         return reports

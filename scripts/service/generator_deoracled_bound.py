@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import os
 import sys
 import time
@@ -57,16 +56,6 @@ N_SPLITS: Final[int] = 5
 
 def _norm(value: Any) -> str:
     return str(value).strip().lower()
-
-
-def _group_mass(report: Any) -> float:
-    """Total unnormalized kernel mass of a slice.
-
-    per_neighbor weights are renormalized within the slice and so cannot rank across generators;
-    the unnormalized kernel sum can. Rebuilt from the stored distances with the same alpha.
-    """
-    neighbors = getattr(report, "per_neighbor", None) or []
-    return float(sum(math.exp(-ALPHA * n.distance) for n in neighbors))
 
 
 def main() -> None:
@@ -114,19 +103,23 @@ def main() -> None:
             for _, rec in subset.iterrows():
                 loc_true = _norm(rec["Location"])
                 gen_true = _norm(rec["Crit_gen"])
-                gens = by_loc.get(loc_true)
-                if not gens:
+                location_group = by_loc.get(loc_true)
+                if location_group is None:
                     rows.append({"state": uid, "fold": fold, "cct_true": float(rec["CCT"]), "covered": False})
                     continue
 
+                # crit_gen_likelihood is the service's own raw (never-renormalized) kernel
+                # mass per generator, comparable across generators - exactly what this used
+                # to hand-recompute locally via a since-removed _group_mass() helper.
                 masses: dict[str, float] = {}
                 estimates: dict[str, float] = {}
-                for gen_key, report in gens.items():
+                for gen_key, report in location_group.per_crit_gen.items():
                     est = getattr(report.summary, "cct_weighted", None)
                     if est is None:
                         continue
-                    masses[_norm(gen_key)] = _group_mass(report)
-                    estimates[_norm(gen_key)] = float(est)
+                    gen_norm = _norm(gen_key)
+                    masses[gen_norm] = location_group.crit_gen_likelihood.get(gen_key, 0.0)
+                    estimates[gen_norm] = float(est)
                 if not estimates:
                     rows.append({"state": uid, "fold": fold, "cct_true": float(rec["CCT"]), "covered": False})
                     continue

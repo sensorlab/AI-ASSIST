@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_extra_types.semantic_version import SemanticVersion
 
-from src.domain.estimation.models import FsaReport, LocationReport, Report
+from src.domain.estimation.models import FsaReport, LocationGroupReport, Report
 from src.domain.estimation.service import EstimationService
 
 
@@ -29,7 +29,7 @@ class StateResponse(BaseModel):
 
 class LocationStateResponse(BaseModel):
     inputs: StateRequest
-    outputs: dict[str, dict[str, LocationReport]]
+    outputs: dict[str, LocationGroupReport]
 
 
 class FsaStateResponse(BaseModel):

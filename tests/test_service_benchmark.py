@@ -18,27 +18,36 @@ def _response_json(*, included_state_ids: list[str] | None = None) -> str:
             },
             "outputs": {
                 "g1": {
-                    "summary": {
-                        "cct_weighted": 2.0,
-                        "cct_weighted_per_location": {"l1": 1.5},
-                        "stats": {
-                            "location_weight_mass": {"l1": 1.0},
-                            "neighborhood_compactness": 1.0,
-                            "n": 1,
-                            "n_eff": 1.0,
-                            "n_unique_states": 1,
-                            "distances": {
-                                "min": 0.1,
-                                "mean": 0.1,
-                                "median": 0.1,
-                                "spread": 0.0,
-                                "norm": 1.0,
+                    "location_likelihood": {"l1": 1.0},
+                    "per_location": {
+                        "l1": {
+                            "summary": {
+                                "cct_weighted": 1.5,
+                                "stats": {
+                                    "weight_mass": 1.0,
+                                    "weight_mass_mean": 1.0,
+                                    "cct_weighted_std": None,
+                                    "cct_distance_correlation": None,
+                                    "cct_quantiles": None,
+                                    "neighborhood_compactness": 1.0,
+                                    "n": 1,
+                                    "n_eff": 1.0,
+                                    "n_unique_states": 1,
+                                    "distances": {
+                                        "min": 0.1,
+                                        "mean": 0.1,
+                                        "median": 0.1,
+                                        "spread": 0.0,
+                                        "norm": 1.0,
+                                    },
+                                },
                             },
-                            "location_counts": {"l1": 1},
-                        },
+                            "included_state_ids": included_state_ids or [],
+                            "per_neighbor": [],
+                        }
                     },
                     "included_state_ids": included_state_ids or [],
-                    "per_neighbor": [],
+                    "neighbors": [],
                 }
             },
         }
