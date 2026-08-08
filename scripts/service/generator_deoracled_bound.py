@@ -15,8 +15,13 @@ Two targets are computed per record, both at the record's true location:
 Also records the rank of the true critical generator in the weight-mass ordering, which explains
 whatever the selection number turns out to be.
 
-Runs the real service in-process. Set QDRANT_URL=:memory: for a self-contained run, or point it at a
-Qdrant instance for speed.
+Runs the real service in-process, in parallel across worker *processes* (not threads, see
+scripts/service/full_deoracled_bound.py's docstring for why): each worker builds its own
+EstimationService and embedded :memory: Qdrant collection once and processes its share of
+states sequentially.
+
+Run from the repository root:
+    uv run python scripts/service/generator_deoracled_bound.py [limit_per_fold] [n_jobs]
 """
 
 from __future__ import annotations
@@ -34,6 +39,7 @@ os.environ.setdefault("QDRANT_URL", ":memory:")
 os.environ.setdefault("DATA_DIR", "./datasets")
 os.environ.setdefault("LOG_LEVEL", "WARNING")
 
+import joblib  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
@@ -46,10 +52,16 @@ from src.domain.estimation.service import build_estimation_service  # noqa: E402
 logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
+# Evaluation artifacts don't belong at the repo root: raw/intermediate (.joblib, .parquet) go to
+# tmp/, CSV summaries the paper actually consumes go to paper-sr/data/ (2026-08-05 cleanup).
+TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
+PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
+PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 LF_PATH: Final[Path] = PROJECT_DIR / "datasets/bus39/interim/lf.pkl"
 TSA_PATH: Final[Path] = PROJECT_DIR / "datasets/bus39/interim/tsa.pkl"
-OUT_CSV: Final[Path] = PROJECT_DIR / "generator_deoracled_bound.csv"
-OUT_RECORDS: Final[Path] = PROJECT_DIR / "generator_deoracled_records.parquet"
+OUT_CSV: Final[Path] = PAPER_DATA_DIR / "generator_deoracled_bound.csv"
+OUT_RECORDS: Final[Path] = TMP_DIR / "generator_deoracled_records.parquet"
 ALPHA: Final[float] = 1.0
 N_SPLITS: Final[int] = 5
 
@@ -58,23 +70,79 @@ def _norm(value: Any) -> str:
     return str(value).strip().lower()
 
 
+WorkItem = tuple[int, str, dict[str, Any], pd.DataFrame, list[str]]
+
+
+def _process_chunk(items: list[WorkItem]) -> list[dict[str, Any]]:
+    """One worker process's share of work. Builds its own EstimationService exactly once,
+    not once per state - process-parallel rather than thread-parallel for the same reason
+    as scripts/service/full_deoracled_bound.py: sharing one in-process Qdrant client across
+    threads is untested in this codebase, and BUS39 is small enough (~21.8k points) that
+    duplicating the embedded collection per worker is cheap."""
+    svc = build_estimation_service()
+    rows: list[dict[str, Any]] = []
+
+    for fold, uid, state, subset, excluded_sorted in items:
+        out = svc.estimate_by_location(state=state, exclude_uids=excluded_sorted, alpha=ALPHA)
+        by_loc = {_norm(k): v for k, v in out.items()}
+
+        for _, rec in subset.iterrows():
+            loc_true = _norm(rec["Location"])
+            gen_true = _norm(rec["Crit_gen"])
+            location_group = by_loc.get(loc_true)
+            if location_group is None:
+                rows.append({"state": uid, "fold": fold, "cct_true": float(rec["CCT"]), "covered": False})
+                continue
+
+            # crit_gen_likelihood is the service's own raw (never-renormalized) kernel
+            # mass per generator, comparable across generators - exactly what this used
+            # to hand-recompute locally via a since-removed _group_mass() helper.
+            masses: dict[str, float] = {}
+            estimates: dict[str, float] = {}
+            for gen_key, report in location_group.per_crit_gen.items():
+                est = getattr(report.summary, "cct_weighted", None)
+                if est is None:
+                    continue
+                gen_norm = _norm(gen_key)
+                masses[gen_norm] = location_group.crit_gen_likelihood.get(gen_key, 0.0)
+                estimates[gen_norm] = float(est)
+            if not estimates:
+                rows.append({"state": uid, "fold": fold, "cct_true": float(rec["CCT"]), "covered": False})
+                continue
+
+            order = sorted(masses, key=masses.get, reverse=True)
+            sel_gen = order[0]
+            rank = order.index(gen_true) + 1 if gen_true in order else -1
+
+            rows.append(
+                {
+                    "state": uid,
+                    "fold": fold,
+                    "covered": True,
+                    "cct_true": float(rec["CCT"]),
+                    "gen_true": gen_true,
+                    "n_candidate_gens": len(estimates),
+                    "gen_true_rank": rank,
+                    "pred_oracle_gen": estimates.get(gen_true),
+                    "pred_selection": estimates[sel_gen],
+                    "pred_screening_min": min(estimates.values()),
+                }
+            )
+    return rows
+
+
 def main() -> None:
     configure_logging()
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else 0
+    n_jobs = int(sys.argv[2]) if len(sys.argv) > 2 else 8
 
     lf: pd.DataFrame = pd.read_pickle(LF_PATH)
     tsa: pd.DataFrame = pd.read_pickle(TSA_PATH)
     tsa_by_state = {str(s): sub for s, sub in tsa.groupby("state", observed=True)}
 
-    svc = build_estimation_service()
-    logger.info("service built")
-
     folds = group_k_fold_test_groups(tsa["state"], n_splits=N_SPLITS)
 
-    rows: list[dict[str, Any]] = []
-    t0 = time.time()
-    n_states = 0
-
+    work: list[WorkItem] = []
     for fold, excluded in enumerate(folds):
         excluded_sorted = sorted(excluded)
         n_fold = 0
@@ -90,58 +158,20 @@ def main() -> None:
             n_fold += 1
             if limit and n_fold > limit:
                 break
-            n_states += 1
-
-            if n_states % 500 == 0:
-                rate = (time.time() - t0) / n_states
-                logger.info(f"{n_states} states, fold {fold}, {rate:.2f}s/state, {len(rows):,} records so far")
 
             state = {k: (None if pd.isna(v) else v) for k, v in state_row.items()}
-            out = svc.estimate_by_location(state=state, exclude_uids=excluded_sorted, alpha=ALPHA)
-            by_loc = {_norm(k): v for k, v in out.items()}
+            work.append((fold, uid, state, subset, excluded_sorted))
 
-            for _, rec in subset.iterrows():
-                loc_true = _norm(rec["Location"])
-                gen_true = _norm(rec["Crit_gen"])
-                location_group = by_loc.get(loc_true)
-                if location_group is None:
-                    rows.append({"state": uid, "fold": fold, "cct_true": float(rec["CCT"]), "covered": False})
-                    continue
+    n_states = len(work)
+    logger.info(f"{n_states} (fold, state) tasks queued across {n_jobs} worker processes")
 
-                # crit_gen_likelihood is the service's own raw (never-renormalized) kernel
-                # mass per generator, comparable across generators - exactly what this used
-                # to hand-recompute locally via a since-removed _group_mass() helper.
-                masses: dict[str, float] = {}
-                estimates: dict[str, float] = {}
-                for gen_key, report in location_group.per_crit_gen.items():
-                    est = getattr(report.summary, "cct_weighted", None)
-                    if est is None:
-                        continue
-                    gen_norm = _norm(gen_key)
-                    masses[gen_norm] = location_group.crit_gen_likelihood.get(gen_key, 0.0)
-                    estimates[gen_norm] = float(est)
-                if not estimates:
-                    rows.append({"state": uid, "fold": fold, "cct_true": float(rec["CCT"]), "covered": False})
-                    continue
+    chunks: list[list[WorkItem]] = [[] for _ in range(n_jobs)]
+    for i, item in enumerate(work):
+        chunks[i % n_jobs].append(item)
 
-                order = sorted(masses, key=masses.get, reverse=True)
-                sel_gen = order[0]
-                rank = order.index(gen_true) + 1 if gen_true in order else -1
-
-                rows.append(
-                    {
-                        "state": uid,
-                        "fold": fold,
-                        "covered": True,
-                        "cct_true": float(rec["CCT"]),
-                        "gen_true": gen_true,
-                        "n_candidate_gens": len(estimates),
-                        "gen_true_rank": rank,
-                        "pred_oracle_gen": estimates.get(gen_true),
-                        "pred_selection": estimates[sel_gen],
-                        "pred_screening_min": min(estimates.values()),
-                    }
-                )
+    t0 = time.time()
+    chunk_results = joblib.Parallel(n_jobs=n_jobs)(joblib.delayed(_process_chunk)(chunk) for chunk in chunks if chunk)
+    rows: list[dict[str, Any]] = [row for chunk_rows in chunk_results for row in chunk_rows]
     df = pd.DataFrame(rows)
     elapsed = time.time() - t0
     logger.info(f"{n_states} states, {len(df)} records, {elapsed:.1f}s ({elapsed / max(n_states, 1):.3f}s/state)")
