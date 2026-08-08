@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 from pathlib import Path
 from typing import Any, Final
@@ -19,6 +20,7 @@ from sklearn.ensemble import (
     HistGradientBoostingRegressor,
     RandomForestRegressor,
 )
+from sklearn.feature_selection import VarianceThreshold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 from tqdm.auto import tqdm
@@ -37,7 +39,15 @@ from src.services.qdrant.config import get_qdrant_config
 logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
-REPORT_PATH: Final[Path] = PROJECT_DIR / "report-ml-regression-2026-05-29.joblib"
+# Evaluation artifacts don't belong at the repo root: raw/intermediate (.joblib) go to tmp/,
+# CSV summaries the paper actually consumes go to paper-sr/data/ (2026-08-05 cleanup).
+TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
+PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
+PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+# Report/CSV filenames are keyed by dataset name (2026-08-08 fix): the previous fixed
+# "report-ml-regression-2026-05-29.joblib" name meant running this for a second dataset
+# (e.g. eles/2026-06) would silently overwrite the first dataset's report.
 
 
 def _configured_dataset_paths() -> tuple[Path, Path]:
@@ -85,6 +95,12 @@ def build_record_table(
         lf_scaled = pd.DataFrame(lf_scaled, index=lf.index)
 
     lf_scaled = lf_scaled.copy()
+    # Clear the index name before adding a same-named "state" column: on datasets whose lf.pkl
+    # index is itself named "state" (e.g. ELES), leaving the name in place makes pandas' merge()
+    # below raise "'state' is both an index level and a column label, which is ambiguous."
+    # BUS39's lf.pkl index happens to be unnamed, which is why this went unnoticed until this
+    # script was first run against ELES (2026-08-08).
+    lf_scaled.index = lf_scaled.index.rename(None)
     lf_scaled["state"] = lf_scaled.index.astype(str)
 
     tsa_records = tsa.copy()
@@ -125,7 +141,15 @@ def build_record_table(
     return X, y, groups
 
 
-def make_models(categorical_cols: list[str]) -> dict[str, Pipeline]:
+def make_models(categorical_cols: list[str], *, max_features: float | str = 1.0) -> dict[str, Pipeline]:
+    # max_features defaults to 1.0 (every feature considered at every split), matching
+    # RandomForestRegressor/ExtraTreesRegressor's own sklearn default -- unlike the classifier
+    # variants, which default to "sqrt". That default is tractable on BUS39's 260 scaled
+    # features but not on ELES's 12,524 (mostly one-hot categorical): evaluating splits over
+    # every feature at every node, for 300 trees x 5 folds, made a single ELES run run for
+    # 1.5+ hours and ~100 GB RSS without finishing (2026-08-08). Overridable via
+    # ML_BENCHMARK_MAX_FEATURES so BUS39's already-reported number stays reproducible at its
+    # original setting while a wide dataset can opt into "sqrt"/"log2"/a fraction.
     preprocess = ColumnTransformer(
         transformers=[
             ("cat", _one_hot_encoder(), categorical_cols),
@@ -133,6 +157,15 @@ def make_models(categorical_cols: list[str]) -> dict[str, Pipeline]:
         remainder="passthrough",
         verbose_feature_names_out=False,
     )
+    # Drops exact-zero-variance columns (fit per training fold, so this cannot leak test
+    # information) before the model sees them. Strictly a no-op on results: a column that
+    # never varies within a fold carries no information and a tree can never split on it
+    # anyway. On ELES's one-hot-heavy 12,524-column representation, many of those columns are
+    # per-bus/per-branch indicators that are constant (usually all-zero) within most folds --
+    # dropping them shrinks the matrix every tree-based model actually has to scan (2026-08-08,
+    # prompted by the ELES extra_trees run above being far slower than max_features=sqrt alone
+    # explained).
+    drop_constant = VarianceThreshold(threshold=0.0)
 
     return {
         "global_median": Pipeline(
@@ -144,12 +177,14 @@ def make_models(categorical_cols: list[str]) -> dict[str, Pipeline]:
         "random_forest": Pipeline(
             steps=[
                 ("preprocess", preprocess),
+                ("drop_constant", drop_constant),
                 (
                     "model",
                     RandomForestRegressor(
                         n_estimators=300,
                         min_samples_leaf=2,
-                        n_jobs=-1,
+                        max_features=max_features,
+                        n_jobs=8,  # capped, not -1: avoids starving other concurrent benchmark jobs of CPU/memory
                         random_state=42,
                     ),
                 ),
@@ -158,12 +193,14 @@ def make_models(categorical_cols: list[str]) -> dict[str, Pipeline]:
         "extra_trees": Pipeline(
             steps=[
                 ("preprocess", preprocess),
+                ("drop_constant", drop_constant),
                 (
                     "model",
                     ExtraTreesRegressor(
                         n_estimators=300,
                         min_samples_leaf=2,
-                        n_jobs=-1,
+                        max_features=max_features,
+                        n_jobs=8,  # capped, not -1: avoids starving other concurrent benchmark jobs of CPU/memory
                         random_state=42,
                     ),
                 ),
@@ -172,6 +209,7 @@ def make_models(categorical_cols: list[str]) -> dict[str, Pipeline]:
         "hist_gradient_boosting": Pipeline(
             steps=[
                 ("preprocess", preprocess),
+                ("drop_constant", drop_constant),
                 (
                     "model",
                     HistGradientBoostingRegressor(
@@ -210,9 +248,20 @@ def run_group_cv(
     groups: pd.Series,
     *,
     n_splits: int = 5,
+    max_features: float | str = 1.0,
+    model_names: set[str] | None = None,
 ) -> pd.DataFrame:
     categorical_cols = [c for c in CONTINGENCY_CATEGORICAL_COLUMNS if c in X.columns]
-    models = make_models(categorical_cols)
+    models = make_models(categorical_cols, max_features=max_features)
+    if model_names is not None:
+        # Each model's Pipeline independently re-fits the (shared, but per-Pipeline-refitted)
+        # ColumnTransformer preprocessing step, so every extra model in this dict multiplies
+        # the cost of one-hot + passthrough transforming the full dense feature matrix, once
+        # per fold. On a wide dataset (ELES: 12,524 columns) that redundant preprocessing, not
+        # just model fitting, dominates runtime -- restricting to only the model(s) actually
+        # needed (typically just "extra_trees", the one the paper cites) avoids paying for the
+        # other three every time.
+        models = {name: pipeline for name, pipeline in models.items() if name in model_names}
 
     rows: list[dict[str, float | str | int]] = []
     iterator = group_k_fold_indices(groups, n_splits=n_splits)
@@ -252,14 +301,16 @@ def run_group_cv(
 
 def main() -> None:
     configure_logging()
+    dataset = get_qdrant_config().dataset_name
+    dataset_slug = dataset.replace("/", "-")
     lf_path, tsa_path = _configured_dataset_paths()
 
-    logger.info(f"Benchmark dataset: lf={lf_path}, tsa={tsa_path}")
+    logger.info(f"Benchmark dataset: {dataset} (lf={lf_path}, tsa={tsa_path})")
     lf = pd.read_pickle(lf_path)
     with sqlite3.connect(tsa_path) as conn:
         tsa = pd.read_sql_query("SELECT * FROM tsa", conn)
 
-    scaler = _make_scaler_for_dataset(get_qdrant_config().dataset_name)
+    scaler = _make_scaler_for_dataset(dataset)
 
     X, y, groups = build_record_table(lf, tsa, scaler=scaler)
 
@@ -268,7 +319,19 @@ def main() -> None:
         f"CCT mean: {y.mean():.3f}; CCT median: {y.median():.3f}; CCT min/max: {y.min():.3f} / {y.max():.3f}"
     )
 
-    results = run_group_cv(X, y, groups, n_splits=5)
+    max_features_env = os.environ.get("ML_BENCHMARK_MAX_FEATURES", "1.0")
+    try:
+        max_features: float | str = float(max_features_env)
+    except ValueError:
+        max_features = max_features_env
+    logger.info(f"RandomForest/ExtraTrees max_features={max_features!r}")
+
+    models_env = os.environ.get("ML_BENCHMARK_MODELS")
+    model_names = {name.strip() for name in models_env.split(",")} if models_env else None
+    if model_names is not None:
+        logger.info(f"Restricting to models: {sorted(model_names)}")
+
+    results = run_group_cv(X, y, groups, n_splits=5, max_features=max_features, model_names=model_names)
     summary = summarize_results(results)
 
     print("\nPer-fold results:")
@@ -285,10 +348,27 @@ def main() -> None:
         "features": list(X.columns),
         "target": "CCT",
         "split": "GroupKFold by pre-fault state",
+        "max_features": max_features,
     }
 
-    joblib.dump(payload, REPORT_PATH)
-    logger.info(f"Saved report to {REPORT_PATH}")
+    report_path = TMP_DIR / f"report-ml-regression-{dataset_slug}.joblib"
+    joblib.dump(payload, report_path)
+    logger.info(f"Saved report to {report_path}")
+
+    # Flat, paper-consumable CSV: one row per model, oracle-feature (true fault location and
+    # critical generator supplied as input columns) GroupKFold-by-state MAE/RMSE etc. This is
+    # the source for the paper's "supervised extra-trees regressor given the same oracle
+    # information" comparison (Results, De-oracling).
+    flat_summary = summary.copy()
+    flat_summary.columns = ["_".join(str(part) for part in col if part) for col in flat_summary.columns]
+    flat_summary = flat_summary.reset_index()
+    flat_summary.insert(0, "dataset", dataset)
+    flat_summary.insert(1, "n_records", len(X))
+    flat_summary.insert(2, "n_groups", int(groups.nunique()))
+    flat_summary.insert(3, "max_features", str(max_features))
+    csv_path = PAPER_DATA_DIR / f"ml_benchmark_summary-{dataset_slug}.csv"
+    flat_summary.to_csv(csv_path, index=False)
+    logger.info(f"Saved summary CSV to {csv_path}")
 
 
 if __name__ == "__main__":
