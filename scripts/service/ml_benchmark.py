@@ -355,10 +355,14 @@ def main() -> None:
     joblib.dump(payload, report_path)
     logger.info(f"Saved report to {report_path}")
 
-    # Flat, paper-consumable CSV: one row per model, oracle-feature (true fault location and
-    # critical generator supplied as input columns) GroupKFold-by-state MAE/RMSE etc. This is
-    # the source for the paper's "supervised extra-trees regressor given the same oracle
-    # information" comparison (Results, De-oracling).
+    # Flat, paper-consumable CSV: one row per model, GroupKFold-by-state MAE/RMSE etc., with
+    # pre-fault state features plus Location/Terminal/Type supplied as input columns -
+    # Crit_gen is deliberately excluded above (it's a simulation outcome, not a pre-fault
+    # input; see build_record_table and tests/test_service_benchmark.py's assertion of this).
+    # This is the source for the paper's ExtraTrees-vs-retrieval comparison (Results,
+    # De-oracling), compared there against retrieval's non-oracle, highest-support-generator
+    # row - not its oracle row, since this model never receives the critical generator either
+    # (corrected 2026-08-09, journal.tex:112 previously claimed otherwise).
     flat_summary = summary.copy()
     flat_summary.columns = ["_".join(str(part) for part in col if part) for col in flat_summary.columns]
     flat_summary = flat_summary.reset_index()
