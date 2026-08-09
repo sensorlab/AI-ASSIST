@@ -38,12 +38,15 @@ def filter_topology_cols_full(lf_cols: list[str]) -> set[str]:
 
 def filter_topology_cols_lines_only(lf_cols: list[str]) -> set[str]:
     """All oserv_Lne* columns, oserv_Gen* excluded. Generator commitment is a dispatch
-    decision, not a topology change, and empirically "generator off" is already fully
-    recoverable from the continuous P_Gen*/Q_Gen* power features (nonzero iff "on" in every
-    generator checked - see the README section below for the caveat on how much weight that
-    observation can bear). This is the sane default: on the current 4,393-state artifact it
-    gives 1,785 topology groups with 76.1% of records having >=1 same-group neighbor, versus
-    either near-total fragmentation ("full") or total collapse ("slovenia_only", on this data)."""
+    decision, not a network topology change; oserv_Gen* is dropped from the hard equality key
+    to reduce fragmentation, on the empirical basis that "generator off" is recoverable from
+    the continuous P_Gen*/Q_Gen* power features (nonzero iff "on" in every generator checked -
+    see the README section below for the caveat on how much weight that observation can bear,
+    and note it establishes only on/off recoverability, not that every retrieval-relevant
+    aspect of generator commitment survives the drop). This coverage/compatibility tradeoff is
+    the deployed default: on the current 4,393-state artifact it gives 1,785 topology groups
+    with 76.1% of records having >=1 same-group neighbor, versus either near-total
+    fragmentation ("full") or total collapse ("slovenia_only", on this data)."""
     RE_COLS = re.compile(r"^oserv_Lne", re.IGNORECASE)
     return {c for c in lf_cols if RE_COLS.match(c) is not None}
 
@@ -435,7 +438,8 @@ def main(in_dir: Path, out_dir: Path):
     # Three named topology-column variants (see README's "Topology Variants" section for the
     # full investigation behind this) - written as topology_cols_<variant>.json so
     # EstimationService can select one via config rather than there being a single hardcoded
-    # definition. "lines_only" is the sane default going forward.
+    # definition. "lines_only" is the deployed default going forward - chosen for coverage
+    # after inspecting all three variants on this data, not validated against point accuracy.
     # out_dir is datasets/eles/2026-06/interim; walk up to datasets/eles/ then into 2026-01's
     # raw/ - this dataset has no dictionary of its own (see filter_topology_cols_slovenia_only).
     dict_path = out_dir.parent.parent / "2026-01" / "raw" / "powerfactory_dictionary.xlsx"

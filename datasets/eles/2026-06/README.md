@@ -91,22 +91,26 @@ data available so far simply doesn't contain any recorded Slovenian topology cha
 diverse batches (including actual domestic switching events) are delivered - it should be re-evaluated
 against future data drops, not written off. **"lines-only" is the one candidate usable as a genuine
 topology filter with the data available right now**: most records land in a group of size >=2, sizes are
-usefully distributed (273 groups of 2, down to a handful of larger groups up to 38), and it fully agrees
-with "slovenia-only" wherever the dictionary-matched columns aren't constant (they always are, in both
-datasets checked so far, so in practice "lines-only" strictly generalizes "slovenia-only" on today's
-data, at no cost - that changes if/when domestic topology variation shows up in a future batch).
+usefully distributed (273 groups of 2, down to a handful of larger groups up to 38), and it agrees
+with "slovenia-only" in every case checked so far, since the dictionary-matched columns have been
+constant in both datasets checked (so "lines-only" strictly generalizes "slovenia-only" on today's
+data - that changes if/when domestic topology variation shows up in a future batch; this is a fact
+about today's data, not a guarantee that holds independently of it).
 
-### Why "lines-only" (excluding generators) is the physically correct choice, not just the one that scored well
+### Rationale for excluding generators from the topology key
 
 Topology should mean network connectivity (which lines/buses are in service), not generator dispatch
 (which unit happens to be committed this hour) - these are different concepts in power-system
 operation, and conflating them is why "full" fragments so badly (165 independently-switching
 generators multiply combinatorially). Empirically checked on 2026-07-25: for all 165 generators
 checked, output power is nonzero in 100% of "committed" records and exactly 0 in 100% of "off" records -
-a perfect, exceptionless correlation in the raw `P_Gen*`/`Q_Gen*` columns. So excluding generator
-`oserv_*` columns from the topology bitstring loses no *retrieval-relevant* information either way:
-"generator is off" is already fully recoverable from the continuous power features already in the
-embedding (`embed_cols`).
+a perfect, exceptionless correlation in the raw `P_Gen*`/`Q_Gen*` columns. This shows only that the
+on/off portion of generator status is recoverable from the continuous power features already in the
+embedding (`embed_cols`) - it does not establish that every retrieval-relevant aspect of generator
+commitment (availability, dispatch/controller semantics, or dynamic-model identity) survives dropping
+`oserv_Gen*` from the hard equality key; two states matched on lines-only can still differ in generator
+commitment in ways the continuous features don't fully capture. Excluding generators is a fragmentation
+tradeoff accepted for coverage, not a proven equivalence (Codex review, `paper-sr/ai2ai.md`, 2026-08-10).
 
 **Caution on interpreting that correlation (flagged 2026-07-25, unresolved)**: a 100%-exceptionless
 correlation between a status flag and a continuous value is also exactly what you'd see if
