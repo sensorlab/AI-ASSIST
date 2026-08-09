@@ -75,9 +75,9 @@ empirically against `eles/2026-01` (used in the paper) and `eles/2026-06` (ident
 
 | Topology definition | # cols | Unique groups (of 4,402/4,393 records) | % records with >=1 same-group neighbor | Max group size |
 |---|---|---|---|---|
-| **"full"** - every `oserv_*` column (current default for `eles/2026-06`) | 1072 | ~4,290 | ~4.8% | 5 |
+| **"full"** - every `oserv_*` column (current default for `eles/2026-06`) | 1072 | 4,281 | 4.80% | 5 |
 | **"slovenia-only"** - `eles/2026-01`'s dictionary-matched subset (`powerfactory_dictionary.xlsx`, `Lines`+`Loads` sheets, generators excluded) | 254 | **1** | 100% (vacuously - it's one giant group) | all records |
-| **"lines-only"** - all `oserv_Lne*`/`oserv_Line*`, generators excluded, no dictionary needed | 907 | 1,790 | **76.1%** | 38 |
+| **"lines-only"** - all `oserv_Lne*`/`oserv_Line*`, generators excluded, no dictionary needed | 907 | 1,785 | **76.12%** | 38 |
 
 So neither existing option is usable as a real topology filter today: "full" fragments almost every
 record into its own singleton (near-zero chance of retrieving anything), and "slovenia-only" collapses
