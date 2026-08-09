@@ -275,18 +275,22 @@ def _run_metric_set(
                     **_base_row(name),
                 }
             )
-            rows.append(
-                {
-                    "metric": name,
-                    "coverage": cov,
-                    "quantity": "rmse",
-                    "point_estimate": float(np.mean(rmse_samples)),
-                    "ci_low": float(np.percentile(rmse_samples, CI_LOW)),
-                    "ci_high": float(np.percentile(rmse_samples, CI_HIGH)),
-                    "n_bootstrap": N_BOOTSTRAP,
-                    **_base_row(name),
-                }
-            )
+            # "fractional" has no defined RMSE (sqrt(E[MSE]) != E[RMSE], src.benchmarking.
+            # risk_coverage_point returns NaN for it) - omit the row entirely rather than
+            # publish a quantity="rmse" row full of NaNs under a policy that doesn't define one.
+            if tie_policy != "fractional":
+                rows.append(
+                    {
+                        "metric": name,
+                        "coverage": cov,
+                        "quantity": "rmse",
+                        "point_estimate": float(np.mean(rmse_samples)),
+                        "ci_low": float(np.percentile(rmse_samples, CI_LOW)),
+                        "ci_high": float(np.percentile(rmse_samples, CI_HIGH)),
+                        "n_bootstrap": N_BOOTSTRAP,
+                        **_base_row(name),
+                    }
+                )
 
     out = pd.DataFrame(rows)
     output_path = _output_path(dataset_name, metric_set_name)
