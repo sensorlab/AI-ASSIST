@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import math
 import os
 import time
 from pathlib import Path
@@ -46,6 +45,9 @@ from typing import Final
 import numpy as np
 import pandas as pd
 
+from src.benchmarking import COVERAGES
+from src.benchmarking import naurc as _naurc
+from src.benchmarking import risk_coverage_point as _shared_risk_coverage_point
 from src.config.logging import configure_logging
 
 logger = logging.getLogger(__name__)
@@ -56,7 +58,6 @@ PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-COVERAGES: Final[tuple[float, ...]] = (1.0, 0.95, 0.9, 0.8, 0.7, 0.5)
 N_BOOTSTRAP: Final[int] = int(os.environ.get("BOOTSTRAP_RISK_COVERAGE_N", "200"))
 SEED: Final[int] = 42
 CI_LOW, CI_HIGH = 2.5, 97.5
@@ -130,40 +131,24 @@ def _risk_coverage_point(
     err_values: np.ndarray,
     *,
     higher_is_better: bool,
+    tie_policy: str = "hard",
+    rng: np.random.Generator | None = None,
 ) -> dict[float, tuple[float, float]]:
     # Defensive guard, not the primary mechanism: with the common mask already applied
     # upstream, this must remove zero rows for every displayed metric and for err. Asserts
     # rather than silently filtering, so a future regression that desynchronizes the mask
-    # fails loudly here too, not just in _run_metric_set's point-estimate pass.
+    # fails loudly here too, not just in _run_metric_set's point-estimate pass. The actual
+    # sort/coverage/tie-policy computation is centralized in src.benchmarking.risk_coverage_point
+    # (2026-08-09, Codex review, ai2ai.md) so this script and bootstrap_risk_coverage.py cannot
+    # silently diverge in how "nAURC" handles ties.
     valid = np.isfinite(metric_values) & np.isfinite(err_values)
     assert valid.all(), (
         f"_risk_coverage_point received {int((~valid).sum())} non-finite value(s) - "
         f"the common-support mask upstream should have removed these already."
     )
-    metric_values = metric_values[valid]
-    err_values = err_values[valid]
-
-    order = np.argsort(metric_values)
-    if higher_is_better:
-        order = order[::-1]
-    err_sorted = err_values[order]
-
-    n = len(err_sorted)
-    out: dict[float, tuple[float, float]] = {}
-    for cov in COVERAGES:
-        k = math.ceil(cov * n)
-        kept = err_sorted[:k]
-        out[cov] = (float(kept.mean()), float(np.sqrt((kept**2).mean())))
-    return out
-
-
-def _naurc(coverage_maes: dict[float, float]) -> float:
-    covs = sorted(coverage_maes.keys())
-    errs = [coverage_maes[c] for c in covs]
-    area = float(np.trapezoid(errs, covs))
-    err_full = coverage_maes[max(covs)]
-    span = max(covs) - min(covs)
-    return area / (err_full * span)
+    return _shared_risk_coverage_point(
+        metric_values, err_values, higher_is_better=higher_is_better, tie_policy=tie_policy, rng=rng
+    )
 
 
 def _run_metric_set(
@@ -172,6 +157,7 @@ def _run_metric_set(
     dataset_name: str,
     metric_set_name: str,
     metrics: tuple[tuple[str, bool], ...],
+    tie_policy: str = "hard",
 ) -> None:
     mask = _common_support_mask(df_covered, metrics)
     df = df_covered[mask].copy()
@@ -210,7 +196,9 @@ def _run_metric_set(
             f"({len(metric_arrays[name]) - n_finite} of {len(metric_arrays[name])} still non-finite) - "
             f"the upstream mask in _common_support_mask is out of sync with this metric set."
         )
-        point_cov = _risk_coverage_point(metric_arrays[name], err_array, higher_is_better=higher_is_better)
+        point_cov = _risk_coverage_point(
+            metric_arrays[name], err_array, higher_is_better=higher_is_better, tie_policy=tie_policy
+        )
         point_naurc[name] = _naurc({c: mae for c, (mae, _rmse) in point_cov.items()})
     logger.info(f"[{dataset_name}/{metric_set_name}] Point-estimate nAURC(MAE): {point_naurc}")
 
@@ -229,7 +217,9 @@ def _run_metric_set(
         boot_err = err_array[idx]
         for name, higher_is_better in metrics:
             boot_metric = metric_arrays[name][idx]
-            cov_result = _risk_coverage_point(boot_metric, boot_err, higher_is_better=higher_is_better)
+            cov_result = _risk_coverage_point(
+                boot_metric, boot_err, higher_is_better=higher_is_better, tie_policy=tie_policy
+            )
             for cov, (mae, rmse) in cov_result.items():
                 bootstrap_mae[name][cov].append(mae)
                 bootstrap_rmse[name][cov].append(rmse)
@@ -246,6 +236,7 @@ def _run_metric_set(
         n_available = availability_counts[name]
         return {
             "metric_set": metric_set_name,
+            "tie_policy": tie_policy,
             "n_records": n_records,
             "n_states": n_states,
             "n_selected_covered_records": n_selected_covered_records,
@@ -309,6 +300,11 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", default="bus39")
     parser.add_argument("--metric-set", choices=["main", "full", "both"], default="both")
+    # "hard" reproduces every previously committed result exactly (2026-08-09, Codex review,
+    # ai2ai.md: the sort order among tied diagnostic values was never a deliberate choice).
+    # "fractional" is the tie-safe estimator proposed in that review - not yet run against
+    # the committed bootstrap_ci_selected_*.csv without Gregor's explicit sign-off.
+    parser.add_argument("--tie-policy", choices=["hard", "fractional"], default="hard")
     return parser.parse_args()
 
 
@@ -329,6 +325,7 @@ def main() -> None:
             dataset_name=args.dataset,
             metric_set_name=metric_set_name,
             metrics=METRIC_SETS[metric_set_name],
+            tie_policy=args.tie_policy,
         )
 
 
