@@ -11,7 +11,8 @@ bootstrap_risk_coverage.py) exists specifically to respect elsewhere. This scrip
 1. Recomputes the significance test at the correct unit of analysis: a paired test on the
    300 per-state mean paired differences, plus a state-resampling bootstrap CI on the mean
    paired MAE/RMSE difference (same convention as bootstrap_risk_coverage.py).
-2. Reports a matched-pairs rank-biserial effect size alongside the p-value.
+2. Reports the Wilcoxon/Rosenthal standardized effect size r = z/sqrt(n) alongside the
+   p-value (not the matched-pairs rank-biserial correlation - a different statistic).
 3. Reports Q90/Q95/Q99/max absolute error for both arms on the same matched record set, to
    test the specific prediction implied by framing topology matching as a physical-validity
    safeguard: if it suppresses admission of physically incompatible neighbors, tail error
@@ -38,15 +39,21 @@ from src.config.logging import configure_logging
 logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
+# Evaluation artifacts don't belong at the repo root: raw/intermediate (.joblib) go to tmp/,
+# CSV summaries the paper actually consumes go to paper-sr/data/ (2026-08-05 cleanup).
+TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
+PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
+PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 # ELES_ABLATION_SAMPLE_SEED lets this recompute the same significance/tail-quantile check
 # against a different ablation sample seed's joblib pair (see scripts/service/
 # eles_benchmark.py's ELES_BENCHMARK_SAMPLE_SEED), for a multi-seed robustness check on the
 # original (seed 42) finding - not just a single-draw result.
 _ABLATION_SEED = os.environ.get("ELES_ABLATION_SAMPLE_SEED")
 _SEED_SUFFIX = f"-seed{_ABLATION_SEED}" if _ABLATION_SEED else ""
-LINES_ONLY_PATH: Final[Path] = PROJECT_DIR / f"report-eles-2026-06-lines_only-sample300{_SEED_SUFFIX}.joblib"
-SLOVENIA_ONLY_PATH: Final[Path] = PROJECT_DIR / f"report-eles-2026-06-slovenia_only-sample300{_SEED_SUFFIX}.joblib"
-OUTPUT_PATH: Final[Path] = PROJECT_DIR / f"eles_topology_ablation_significance{_SEED_SUFFIX}.csv"
+LINES_ONLY_PATH: Final[Path] = TMP_DIR / f"report-eles-2026-06-lines_only-sample300{_SEED_SUFFIX}.joblib"
+SLOVENIA_ONLY_PATH: Final[Path] = TMP_DIR / f"report-eles-2026-06-slovenia_only-sample300{_SEED_SUFFIX}.joblib"
+OUTPUT_PATH: Final[Path] = PAPER_DATA_DIR / f"eles_topology_ablation_significance{_SEED_SUFFIX}.csv"
 
 N_BOOTSTRAP: Final[int] = 1000
 SEED: Final[int] = 42
@@ -97,10 +104,14 @@ def main() -> None:
     n_states = len(per_state)
     w_state, p_state = stats.wilcoxon(per_state["err_filter_on"], per_state["err_filter_off"], method="approx")
     z_state = stats.wilcoxon(per_state["err_filter_on"], per_state["err_filter_off"], method="approx").zstatistic
-    r_rank_biserial = z_state / np.sqrt(n_states)
+    # z/sqrt(n) is the Wilcoxon/Rosenthal standardized effect size r, not the matched-pairs
+    # rank-biserial correlation r_rb = (W_plus - W_minus)/(W_plus + W_minus) - the two are
+    # numerically different statistics; this field and its label were corrected 2026-08-09
+    # (Codex review, ai2ai.md) after being reported under the wrong name.
+    r_effect = z_state / np.sqrt(n_states)
     logger.info(
         f"State-level (n={n_states}): W={w_state:.1f}, p={p_state:.3e}, "
-        f"z={z_state:.3f}, rank-biserial r={r_rank_biserial:.3f}"
+        f"z={z_state:.3f}, Wilcoxon effect size r={r_effect:.3f}"
     )
 
     # --- State-resampling bootstrap CI on the mean paired MAE/RMSE difference ---
@@ -135,7 +146,7 @@ def main() -> None:
         {"quantity": "state_level_wilcoxon_W", "value": w_state},
         {"quantity": "state_level_p_value", "value": p_state},
         {"quantity": "state_level_z", "value": z_state},
-        {"quantity": "state_level_rank_biserial_r", "value": r_rank_biserial},
+        {"quantity": "state_level_wilcoxon_effect_size_r", "value": r_effect},
         {"quantity": "mean_paired_diff_off_minus_on_point", "value": point_mean_diff},
         {"quantity": "mean_paired_diff_ci_low", "value": ci_low},
         {"quantity": "mean_paired_diff_ci_high", "value": ci_high},
