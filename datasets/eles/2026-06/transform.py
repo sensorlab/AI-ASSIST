@@ -41,9 +41,9 @@ def filter_topology_cols_lines_only(lf_cols: list[str]) -> set[str]:
     decision, not a topology change, and empirically "generator off" is already fully
     recoverable from the continuous P_Gen*/Q_Gen* power features (nonzero iff "on" in every
     generator checked - see the README section below for the caveat on how much weight that
-    observation can bear). This is the sane default: on the 2026-07-25 investigation it gave
-    1,790 topology groups with 76% of records having >=1 same-group neighbor, versus either
-    near-total fragmentation ("full") or total collapse ("slovenia_only", on this data)."""
+    observation can bear). This is the sane default: on the current 4,393-state artifact it
+    gives 1,785 topology groups with 76.1% of records having >=1 same-group neighbor, versus
+    either near-total fragmentation ("full") or total collapse ("slovenia_only", on this data)."""
     RE_COLS = re.compile(r"^oserv_Lne", re.IGNORECASE)
     return {c for c in lf_cols if RE_COLS.match(c) is not None}
 
