@@ -177,7 +177,12 @@ def _run_metric_set(
     df = df_covered[mask].copy()
     n_records = len(df)
     n_states = df["state"].nunique()
-    availability = {name: float(np.isfinite(df_covered[name].to_numpy(dtype=np.float64)).mean()) for name, _ in metrics}
+    # Exact integer counts, not round(rate * n) - same round-tripping concern as the
+    # generator-identification denominator fix earlier in this thread (ai2ai.md).
+    availability_counts = {
+        name: int(np.isfinite(df_covered[name].to_numpy(dtype=np.float64)).sum()) for name, _ in metrics
+    }
+    availability = {name: count / len(df_covered) for name, count in availability_counts.items()}
     logger.info(
         f"[{dataset_name}/{metric_set_name}] common-support population: {n_records:,} records, "
         f"{n_states:,} states (of {len(df_covered):,} selected-covered records, "
@@ -238,7 +243,7 @@ def _run_metric_set(
     n_selected_covered_states = int(df_covered["state"].nunique())
 
     def _base_row(name: str) -> dict[str, object]:
-        n_available = int(round(availability[name] * n_selected_covered_records))
+        n_available = availability_counts[name]
         return {
             "metric_set": metric_set_name,
             "n_records": n_records,
