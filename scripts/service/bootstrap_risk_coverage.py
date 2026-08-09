@@ -1,4 +1,4 @@
-"""Bootstrap confidence intervals for the BUS39 risk-coverage/nAURC analysis.
+"""Bootstrap confidence intervals for the risk-coverage/nAURC analysis.
 
 Resamples pre-fault STATES (not records) with replacement, so the full block of
 simulation records belonging to a resampled state moves together - the same grouping
@@ -7,16 +7,19 @@ same risk_coverage() computation as reports/30_benchmark_results_analysis.ipynb,
 the same normalized-AURC formula as paper/scripts/compute_aurc.py, on each bootstrap
 replicate, then reports percentile confidence intervals.
 
-Only covers BUS39: the ELES risk-coverage numbers are computed from confidential
-per-record data not present in this repository, so no equivalent bootstrap is possible
-for them here.
+Dataset-parameterized (2026-08-06): originally BUS39-only ("the ELES risk-coverage
+numbers are computed from confidential per-record data not present in this repository"),
+but that no longer holds - ELES's own report-service-group-kfold-*.joblib is generated
+locally by benchmark.py same as BUS39's, so both are covered via --dataset.
 
 Run from repository root:
-    uv run python scripts/service/bootstrap_risk_coverage.py
+    uv run python scripts/service/bootstrap_risk_coverage.py --dataset bus39
+    uv run python scripts/service/bootstrap_risk_coverage.py --dataset eles/2026-06
 """
 
 from __future__ import annotations
 
+import argparse
 import logging
 import math
 import os
@@ -33,8 +36,29 @@ from src.config.logging import configure_logging
 logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
-REPORT_PATH: Final[Path] = PROJECT_DIR / "report-2026-05-29.joblib"
-OUTPUT_PATH: Final[Path] = PROJECT_DIR / "bootstrap_ci_bus39.csv"
+# Evaluation artifacts don't belong at the repo root: raw/intermediate (.joblib, .parquet) go to
+# tmp/, CSV summaries the paper actually consumes go to paper-sr/data/ (2026-08-05 cleanup).
+TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
+PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
+PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _dataset_safe_name(dataset_name: str) -> str:
+    return dataset_name.strip().lower().replace("/", "-")
+
+
+def _report_path(dataset_name: str) -> Path:
+    # Mirrors benchmark.py's REPORT_PATH suffix convention exactly: bus39 keeps the bare
+    # historical filename, every other dataset gets a "-{safe_name}" suffix.
+    safe_name = _dataset_safe_name(dataset_name)
+    suffix = "" if safe_name == "bus39" else f"-{safe_name}"
+    return TMP_DIR / f"report-service-group-kfold{suffix}.joblib"
+
+
+def _output_path(dataset_name: str) -> Path:
+    return PAPER_DATA_DIR / f"bootstrap_ci_{_dataset_safe_name(dataset_name)}.csv"
+
 
 COVERAGES: Final[tuple[float, ...]] = (1.0, 0.95, 0.9, 0.8, 0.7, 0.5)
 # Overridable via BOOTSTRAP_RISK_COVERAGE_N for a higher-resolution percentile-CI rerun
@@ -44,13 +68,22 @@ N_BOOTSTRAP: Final[int] = int(os.environ.get("BOOTSTRAP_RISK_COVERAGE_N", "200")
 SEED: Final[int] = 42
 CI_LOW, CI_HIGH = 2.5, 97.5
 
-# (metric, higher_is_better) - identical set and directions to
-# reports/30_benchmark_results_analysis.ipynb / paper/scripts/compute_aurc.py.
+# (metric, higher_is_better) - the original set matches reports/30_benchmark_results_analysis.ipynb
+# / paper/scripts/compute_aurc.py exactly. The four added 2026-08-06 (n_eff_fraction,
+# n_unique_states, cct_weighted_std, cct_distance_correlation_abs) are new: n_eff_fraction fixes
+# n_eff's mechanical confound with retrieved-pool size (uniform weights give n_eff == n_neighbors
+# exactly, so pooling groups of different sizes conflates "concentrated evidence" with "small
+# pool"); the other three were already computed by LocationReportStats but never extracted into
+# the benchmark harness or tested against error before now.
 METRICS: Final[tuple[tuple[str, bool], ...]] = (
     ("location_weight_mass", True),
     ("n_eff", True),
+    ("n_eff_fraction", True),
     ("n_neighbors", True),
+    ("n_unique_states", True),
     ("neighborhood_compactness", True),
+    ("cct_weighted_std", False),
+    ("cct_distance_correlation_abs", True),
     ("distance_min", False),
     ("distance_mean", False),
     ("distance_median", False),
@@ -59,12 +92,23 @@ METRICS: Final[tuple[tuple[str, bool], ...]] = (
 )
 
 
-def _load_frame() -> pd.DataFrame:
-    payload = joblib.load(REPORT_PATH)
-    df = pd.DataFrame(payload if isinstance(payload, list) else payload["data"])
+def _load_frame(dataset_name: str = "bus39") -> pd.DataFrame:
+    payload = joblib.load(_report_path(dataset_name))
+    if isinstance(payload, list):
+        records = payload
+    elif "predictions" in payload:
+        records = payload["predictions"]
+    else:
+        records = payload["data"]
+    df = pd.DataFrame(records)
     df = df.drop(columns=["prediction_summary"], errors="ignore")
     df = df.dropna(subset=["cct_weighted_per_location"]).copy()
     df["err"] = (df["cct_true"] - df["cct_weighted_per_location"]).abs()
+    # cct_distance_correlation is signed and can be informative in either direction (a strong
+    # negative correlation is just as meaningful as a strong positive one) - risk_coverage()
+    # sorting needs a single monotonic "more informative" direction, so rank by magnitude.
+    if "cct_distance_correlation" in df.columns:
+        df["cct_distance_correlation_abs"] = df["cct_distance_correlation"].abs()
     return df
 
 
@@ -107,10 +151,19 @@ def _naurc(coverage_maes: dict[float, float]) -> float:
     return area / (err_full * span)
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", default="bus39")
+    return parser.parse_args()
+
+
 def main() -> None:
     configure_logging()
-    logger.info(f"Loading {REPORT_PATH} ...")
-    df = _load_frame()
+    args = _parse_args()
+    report_path = _report_path(args.dataset)
+    output_path = _output_path(args.dataset)
+    logger.info(f"Loading {report_path} ...")
+    df = _load_frame(args.dataset)
     logger.info(f"Loaded {len(df):,} covered records across {df['state'].nunique():,} unique states")
 
     # DataFrameGroupBy.indices is an O(N) group-position lookup (dict: group key ->
@@ -197,8 +250,8 @@ def main() -> None:
             )
 
     out = pd.DataFrame(rows)
-    out.to_csv(OUTPUT_PATH, index=False)
-    logger.info(f"Saved {OUTPUT_PATH}")
+    out.to_csv(output_path, index=False)
+    logger.info(f"Saved {output_path}")
     print(out.to_string(index=False))
 
 
