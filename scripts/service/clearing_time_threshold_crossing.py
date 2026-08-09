@@ -148,6 +148,15 @@ def _state_screening_metrics(labels: pd.DataFrame) -> dict[str, float]:
         "state_complete_coverage_rate": float(labels["complete_coverage"].mean()),
         "n_states_any_estimate": int(labels["any_estimate"].sum()),
         "n_states_complete_coverage": int(labels["complete_coverage"].sum()),
+        # Disjoint decomposition of the two referral causes (added 2026-08-09, peer review):
+        # threshold_flag_load + coverage_referral_load double-counts states referred for both
+        # reasons, so those two rates are not additive shares of screening_referral_load. These
+        # four categories partition the state population exactly (sum to 1.0) and are the
+        # correct basis for "which cause drives referral" claims.
+        "referral_threshold_only_load": float((labels["threshold_flag"] & ~labels["coverage_referral"]).mean()),
+        "referral_coverage_only_load": float((~labels["threshold_flag"] & labels["coverage_referral"]).mean()),
+        "referral_both_load": float((labels["threshold_flag"] & labels["coverage_referral"]).mean()),
+        "referral_neither_load": float((~labels["threshold_flag"] & ~labels["coverage_referral"]).mean()),
     }
 
 
