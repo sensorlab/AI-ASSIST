@@ -119,7 +119,7 @@ def _load_frame(dataset_name: str) -> pd.DataFrame:
 
 
 def _common_support_mask(df: pd.DataFrame, metrics: tuple[tuple[str, bool], ...]) -> pd.Series:
-    mask = df["err"].notna()
+    mask = pd.Series(np.isfinite(df["err"].to_numpy(dtype=np.float64)), index=df.index)
     for name, _ in metrics:
         mask &= np.isfinite(df[name].to_numpy(dtype=np.float64))
     return mask
@@ -132,9 +132,14 @@ def _risk_coverage_point(
     higher_is_better: bool,
 ) -> dict[float, tuple[float, float]]:
     # Defensive guard, not the primary mechanism: with the common mask already applied
-    # upstream, this must remove zero rows for every displayed metric. See _run_metric_set's
-    # assertion, which fails loudly if that invariant is ever violated by a future change.
+    # upstream, this must remove zero rows for every displayed metric and for err. Asserts
+    # rather than silently filtering, so a future regression that desynchronizes the mask
+    # fails loudly here too, not just in _run_metric_set's point-estimate pass.
     valid = np.isfinite(metric_values) & np.isfinite(err_values)
+    assert valid.all(), (
+        f"_risk_coverage_point received {int((~valid).sum())} non-finite value(s) - "
+        f"the common-support mask upstream should have removed these already."
+    )
     metric_values = metric_values[valid]
     err_values = err_values[valid]
 
@@ -186,6 +191,12 @@ def _run_metric_set(
     metric_arrays = {name: df[name].to_numpy(dtype=np.float64) for name, _ in metrics}
     err_array = df["err"].to_numpy(dtype=np.float64)
 
+    n_err_finite = int(np.isfinite(err_array).sum())
+    assert n_err_finite == len(err_array), (
+        f"Common-support mask did not eliminate missingness in err "
+        f"({len(err_array) - n_err_finite} of {len(err_array)} still non-finite) - "
+        f"the upstream mask in _common_support_mask is out of sync."
+    )
     point_naurc: dict[str, float] = {}
     for name, higher_is_better in metrics:
         n_finite = int(np.isfinite(metric_arrays[name]).sum())
@@ -223,6 +234,21 @@ def _run_metric_set(
             elapsed = time.monotonic() - t_start
             logger.info(f"[{dataset_name}/{metric_set_name}] Bootstrap {b + 1}/{N_BOOTSTRAP} ({elapsed:.1f}s elapsed)")
 
+    n_selected_covered_records = len(df_covered)
+    n_selected_covered_states = int(df_covered["state"].nunique())
+
+    def _base_row(name: str) -> dict[str, object]:
+        n_available = int(round(availability[name] * n_selected_covered_records))
+        return {
+            "metric_set": metric_set_name,
+            "n_records": n_records,
+            "n_states": n_states,
+            "n_selected_covered_records": n_selected_covered_records,
+            "n_selected_covered_states": n_selected_covered_states,
+            "n_available": n_available,
+            "availability_rate": availability[name],
+        }
+
     rows: list[dict[str, object]] = []
     for name, _ in metrics:
         naurc_samples = np.array(bootstrap_naurc[name])
@@ -235,8 +261,7 @@ def _run_metric_set(
                 "ci_low": float(np.percentile(naurc_samples, CI_LOW)),
                 "ci_high": float(np.percentile(naurc_samples, CI_HIGH)),
                 "n_bootstrap": N_BOOTSTRAP,
-                "n_records": n_records,
-                "n_states": n_states,
+                **_base_row(name),
             }
         )
         for cov in COVERAGES:
@@ -251,8 +276,7 @@ def _run_metric_set(
                     "ci_low": float(np.percentile(mae_samples, CI_LOW)),
                     "ci_high": float(np.percentile(mae_samples, CI_HIGH)),
                     "n_bootstrap": N_BOOTSTRAP,
-                    "n_records": n_records,
-                    "n_states": n_states,
+                    **_base_row(name),
                 }
             )
             rows.append(
@@ -264,8 +288,7 @@ def _run_metric_set(
                     "ci_low": float(np.percentile(rmse_samples, CI_LOW)),
                     "ci_high": float(np.percentile(rmse_samples, CI_HIGH)),
                     "n_bootstrap": N_BOOTSTRAP,
-                    "n_records": n_records,
-                    "n_states": n_states,
+                    **_base_row(name),
                 }
             )
 
