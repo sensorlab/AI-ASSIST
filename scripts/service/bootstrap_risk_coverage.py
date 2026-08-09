@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import math
 import os
 import time
 from pathlib import Path
@@ -31,6 +30,9 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from src.benchmarking import COVERAGES
+from src.benchmarking import naurc as _naurc
+from src.benchmarking import risk_coverage_point as _risk_coverage_point
 from src.config.logging import configure_logging
 
 logger = logging.getLogger(__name__)
@@ -60,7 +62,6 @@ def _output_path(dataset_name: str) -> Path:
     return PAPER_DATA_DIR / f"bootstrap_ci_{_dataset_safe_name(dataset_name)}.csv"
 
 
-COVERAGES: Final[tuple[float, ...]] = (1.0, 0.95, 0.9, 0.8, 0.7, 0.5)
 # Overridable via BOOTSTRAP_RISK_COVERAGE_N for a higher-resolution percentile-CI rerun
 # (200 resamples is on the low side for stable percentile CIs, particularly at the 50%
 # coverage tail where fewer states remain after selective filtering).
@@ -110,45 +111,6 @@ def _load_frame(dataset_name: str = "bus39") -> pd.DataFrame:
     if "cct_distance_correlation" in df.columns:
         df["cct_distance_correlation_abs"] = df["cct_distance_correlation"].abs()
     return df
-
-
-def _risk_coverage_point(
-    metric_values: np.ndarray,
-    err_values: np.ndarray,
-    *,
-    higher_is_better: bool,
-) -> dict[float, tuple[float, float]]:
-    """Return {coverage: (mae, rmse)} for one metric on one (bootstrap) sample,
-    matching reports/30_benchmark_results_analysis.ipynb::risk_coverage() exactly:
-    sort by metric, keep the top ceil(coverage * n), compute MAE/RMSE of err on that
-    retained subset."""
-    valid = np.isfinite(metric_values) & np.isfinite(err_values)
-    metric_values = metric_values[valid]
-    err_values = err_values[valid]
-
-    order = np.argsort(metric_values)
-    if higher_is_better:
-        order = order[::-1]
-    err_sorted = err_values[order]
-
-    n = len(err_sorted)
-    out: dict[float, tuple[float, float]] = {}
-    for cov in COVERAGES:
-        k = math.ceil(cov * n)
-        kept = err_sorted[:k]
-        out[cov] = (float(kept.mean()), float(np.sqrt((kept**2).mean())))
-    return out
-
-
-def _naurc(coverage_maes: dict[float, float]) -> float:
-    """Normalized AURC via trapezoidal integration, matching
-    paper/scripts/compute_aurc.py exactly: trapz(err(c), c) / (err_full * (c_max - c_min))."""
-    covs = sorted(coverage_maes.keys())
-    errs = [coverage_maes[c] for c in covs]
-    area = float(np.trapezoid(errs, covs))
-    err_full = coverage_maes[max(covs)]
-    span = max(covs) - min(covs)
-    return area / (err_full * span)
 
 
 def _parse_args() -> argparse.Namespace:
