@@ -40,20 +40,25 @@ OUTPUT_PATH: Final[Path] = PAPER_DATA_DIR / "generator_identification_summary.cs
 def _stats(*, dataset: str, df: pd.DataFrame, covered_col: str) -> dict[str, object]:
     cov = df[df[covered_col]]
     ranked = cov[cov["gen_true_rank"] > 0]
-    gen_top1 = float((ranked["gen_true_rank"] == 1).mean())
     n_total = int(len(df))
     n_covered = int(len(cov))
     n_ranked = int(len(ranked))
+    # Exact integer numerator, not `n_ranked * gen_top1` - that reconstructs the same count
+    # through a division-then-multiplication round trip for no reason, per Codex's review in
+    # ai2ai.md (2026-08-09). gen_top1 itself is still reported as the established rate.
+    n_correct_top1 = int((ranked["gen_true_rank"] == 1).sum())
+    gen_top1 = n_correct_top1 / n_ranked
     location_coverage_rate = n_covered / n_total
     candidate_set_recall = n_ranked / n_covered
-    joint_rate_within_covered = candidate_set_recall * gen_top1
-    success_rate_all_records = (n_ranked * gen_top1) / n_total
+    joint_rate_within_covered = n_correct_top1 / n_covered
+    success_rate_all_records = n_correct_top1 / n_total
     return {
         "dataset": dataset,
         "n_total": n_total,
         "n_covered": n_covered,
         "n_ranked": n_ranked,
         "n_true_gen_not_a_candidate": n_covered - n_ranked,
+        "n_correct_top1": n_correct_top1,
         "gen_top1": gen_top1,
         "gen_top3": float((ranked["gen_true_rank"] <= 3).mean()),
         "mean_candidate_gens": float(cov["n_candidate_gens"].mean()),
@@ -62,8 +67,8 @@ def _stats(*, dataset: str, df: pd.DataFrame, covered_col: str) -> dict[str, obj
         # n_covered/n_total (some retrieval-visible candidate exists at the recorded
         # location at all); candidate_set_recall is n_ranked/n_covered (conditional on
         # location coverage, the recorded true generator is among those candidates);
-        # joint_rate_within_covered is candidate_set_recall * gen_top1 (candidate presence
-        # and top-1 selection combined, within the location-covered population);
+        # joint_rate_within_covered is n_correct_top1/n_covered (candidate presence and
+        # top-1 selection combined, within the location-covered population);
         # success_rate_all_records divides by n_total instead of n_covered, so it also
         # counts location-uncovered records as failures. None of these condition away the
         # true fault location itself, which every row here still supplies as an input.
