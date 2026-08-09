@@ -19,6 +19,18 @@ predicted CCT is below tau *or* any of its simulated contingency records lacks a
 Keeping the missing records in the state aggregation is essential; dropping them would report
 screening performance only on the subset for which retrieval already succeeded.
 
+Fixed 2026-08-09 (peer review caught this): both flip-rate and screening previously read
+`cct_weighted_per_location` from benchmark.py's per-record reports, which is the *oracle*
+prediction - `outputs_by_crit_gen.get(crit_gen_true)`, i.e. it already assumes the true
+critical generator is known before dispatching the query. That assumption doesn't hold for a
+genuine pre-fault screen (which generator becomes critical is an outcome of the fault, not an
+input to it), and it's exactly what generator_deoracled_bound.py/eles_deoracled_bound.py's
+"screening_min" variant is built to avoid: the retrieval-visible candidate generators at that
+location are enumerated without needing to know which one is correct, and the minimum of
+their estimates is used as the conservative, generator-agnostic CCT bound. This script now
+reads those per-record deoracled artifacts instead of benchmark.py's oracle-conditioned
+report, so both coverage and screening reflect only information available before the fault.
+
 Run from repository root:
     uv run python scripts/service/clearing_time_threshold_crossing.py
 """
@@ -30,7 +42,6 @@ import os
 from pathlib import Path
 from typing import Final
 
-import joblib
 import numpy as np
 import pandas as pd
 
@@ -45,8 +56,8 @@ TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
 PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
-BUS39_PATH: Final[Path] = TMP_DIR / "report-service-group-kfold.joblib"
-ELES_PATH: Final[Path] = TMP_DIR / "report-eles-2026-06-lines_only.joblib"
+BUS39_PATH: Final[Path] = TMP_DIR / "generator_deoracled_records.parquet"
+ELES_PATH: Final[Path] = TMP_DIR / "eles_deoracled_records_eles-2026-06_lines_only.parquet"
 OUTPUT_PATH: Final[Path] = PAPER_DATA_DIR / "clearing_time_threshold_crossing.csv"
 
 # 0.20 added (2026-08-05) - the paper's primary operational threshold (DIRECTION.md Decisions:
@@ -184,13 +195,17 @@ def _bootstrap_screening_ci(labels: pd.DataFrame, *, rng: np.random.Generator) -
 
 
 def _bus39_frame() -> pd.DataFrame:
-    payload = joblib.load(BUS39_PATH)
-    return pd.DataFrame(payload["predictions"])
+    # generator_deoracled_bound.py's per-record output: "screening_min" is the minimum
+    # estimate across retrieval-visible candidate generators at the true location, requiring
+    # no knowledge of which one actually turns out to be critical (see module docstring).
+    df = pd.read_parquet(BUS39_PATH)
+    return df.rename(columns={"pred_screening_min": "cct_weighted_per_location"})
 
 
 def _eles_frame() -> pd.DataFrame:
-    rows = joblib.load(ELES_PATH)
-    return pd.DataFrame(rows)
+    # eles_deoracled_bound.py's equivalent, location-fixed/generator-deoracled variant.
+    df = pd.read_parquet(ELES_PATH)
+    return df.rename(columns={"pred_gen_deoracled_screening_min": "cct_weighted_per_location"})
 
 
 def main() -> None:
