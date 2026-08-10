@@ -8,4 +8,5 @@ def create_qdrant_client(config: QdrantConfig) -> QdrantClient:
         location=config.url,
         api_key=config.api_key,
         prefer_grpc=config.prefer_grpc,
+        timeout=int(config.client_timeout_seconds),
     )

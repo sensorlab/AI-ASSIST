@@ -28,7 +28,7 @@ class TopologyVariantConfigTests(unittest.TestCase):
     def test_collection_name_includes_topology_variant(self):
         config = QdrantConfig(_env_file=None, DATASET_NAME="eles/2026-06", TOPOLOGY_VARIANT="slovenia_only")
 
-        self.assertEqual(config.collection_name, "states_eles-2026-06_slovenia_only")
+        self.assertEqual(config.collection_name, f"states_eles-2026-06_slovenia_only_{config.scaler_version}")
 
     def test_different_variants_produce_different_collection_names(self):
         base = {"_env_file": None, "DATASET_NAME": "eles/2026-06"}
@@ -41,6 +41,30 @@ class TopologyVariantConfigTests(unittest.TestCase):
         config = QdrantConfig(_env_file=None, QDRANT_COLLECTION="explicit_name", TOPOLOGY_VARIANT="full")
 
         self.assertEqual(config.collection_name, "explicit_name")
+
+
+class ScalerVersionConfigTests(unittest.TestCase):
+    """QdrantConfig.scaler_version and its effect on collection_name - same rationale as
+    topology_variant above (see TopologyVariantConfigTests): a scaler formula change alters
+    stored vector values/dimensionality, so it must be folded into the collection name to avoid
+    DatabaseQdrant.fit(force=False) silently reusing a collection populated under an old scaler."""
+
+    def test_defaults_to_v4(self):
+        config = QdrantConfig(_env_file=None)
+
+        self.assertEqual(config.scaler_version, "v4")
+
+    def test_collection_name_includes_scaler_version(self):
+        config = QdrantConfig(_env_file=None, DATASET_NAME="bus39", SCALER_VERSION="v4")
+
+        self.assertEqual(config.collection_name, "states_bus39_lines_only_v4")
+
+    def test_different_scaler_versions_produce_different_collection_names(self):
+        base = {"_env_file": None, "DATASET_NAME": "bus39"}
+        v3 = QdrantConfig(**base, SCALER_VERSION="v3")
+        v4 = QdrantConfig(**base, SCALER_VERSION="v4")
+
+        self.assertNotEqual(v3.collection_name, v4.collection_name)
 
 
 if __name__ == "__main__":

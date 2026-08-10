@@ -7,10 +7,9 @@ import numpy as np
 import pandas as pd
 from scipy.spatial.distance import pdist
 from sklearn.compose import make_column_selector, make_column_transformer
-from sklearn.feature_selection import VarianceThreshold
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import FunctionTransformer
+from sklearn.preprocessing import StandardScaler
 
 from src.config.settings import get_app_settings
 from src.domain.estimation.models import (
@@ -104,16 +103,18 @@ def _sssa_dataset_path(data_dir: Path, dataset_name: str) -> Path | None:
 
 
 def make_scaler_eles() -> Any:
-    def add_suffix_fn(transformer: Any, input_features: list[str]) -> np.ndarray:
-        return np.array([f"{c}_scaled" for c in input_features], dtype=object)
+    """Per-column StandardScaler, replacing hardcoded per-group range constants sized off
+    nominal engineering range rather than realized variance (angle columns drove 99.9% of
+    total squared distance pre-fix). No VarianceThreshold: StandardScaler already handles a
+    constant column safely (scale_=1) instead of hard-failing when a whole branch is
+    constant. See paper-sr/EXPERIMENTS.md #16."""
 
     feature_scaler = make_column_transformer(
         (
             # voltages: (0.0, 3.1166)
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                VarianceThreshold(threshold=0),
-                FunctionTransformer(lambda X: X / 3.0, feature_names_out=add_suffix_fn),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r"^U_"),
         ),
@@ -122,8 +123,7 @@ def make_scaler_eles() -> Any:
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
                 AngleSinCos(input_in_degrees=True),
-                VarianceThreshold(threshold=0),  # remove feature with ZERO variance
-                FunctionTransformer(lambda X: X * 20, feature_names_out=add_suffix_fn),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r"^phi_"),
         ),
@@ -131,8 +131,7 @@ def make_scaler_eles() -> Any:
             # scale all active powers (-7423.0, 14050.0)
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                VarianceThreshold(threshold=0),  # remove feature with ZERO variance
-                FunctionTransformer(lambda X: X / 14_000, feature_names_out=add_suffix_fn),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r"^P\d?_"),
         ),
@@ -140,8 +139,7 @@ def make_scaler_eles() -> Any:
             # reactive power (-8654.47, 916.79)
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                VarianceThreshold(threshold=0),  # remove feature with ZERO variance
-                FunctionTransformer(lambda X: X / 8_000, feature_names_out=add_suffix_fn),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r"^Q\d?_"),
         ),
@@ -149,8 +147,7 @@ def make_scaler_eles() -> Any:
             # short-circuit powers (0.0, 15996.28)
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                VarianceThreshold(threshold=0),  # remove feature with ZERO variance
-                FunctionTransformer(lambda X: 1.0 / (1 + np.sqrt(X)), feature_names_out=add_suffix_fn),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r"^Sk_"),
         ),
@@ -165,14 +162,10 @@ def make_scaler_eles() -> Any:
             # PowerFactory flag) - don't treat the generator case as confirmed the way the line
             # case is. See datasets/eles/2026-06/README.md "Topology Variants" section. Not
             # re-verified for bus39/interscada; don't assume this reversed polarity generalizes.
-            # make_pipeline(
-            #    SimpleImputer(strategy="constant", fill_value=True, keep_empty_features=True),
-            #    # OneHotEncoder(drop="if_binary", sparse_output=False),
-            # ),
             SimpleImputer(strategy="constant", fill_value=True, keep_empty_features=True),
             make_column_selector(pattern=r"^oserv_"),
         ),
-        remainder="drop",  # "passthrough",
+        remainder="drop",
         n_jobs=-1,
         verbose=False,
         verbose_feature_names_out=False,
@@ -182,14 +175,18 @@ def make_scaler_eles() -> Any:
 
 
 def make_scaler_bus39() -> Any:
-    def _add_suffix_fn(transformer, input_features: list[str]):
-        return np.array([f"{c}_scaled" for c in input_features], dtype=object)
+    """Per-column StandardScaler, replacing hardcoded per-group range constants sized off
+    nominal engineering range rather than realized variance (reactive power alone drove 56%
+    of total squared distance pre-fix). No VarianceThreshold: StandardScaler already handles
+    a constant column safely (Sk_ is constant per bus here, which used to hard-fail
+    VarianceThreshold). with_mean=True is fine despite P_/Q_ crossing zero - Euclidean
+    distance is invariant to per-column additive shifts. See paper-sr/EXPERIMENTS.md #16."""
 
     return make_column_transformer(
         (
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                FunctionTransformer(lambda X: X, feature_names_out=_add_suffix_fn),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r"^U_"),
         ),
@@ -197,28 +194,28 @@ def make_scaler_bus39() -> Any:
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
                 AngleSinCos(input_in_degrees=True),
-                FunctionTransformer(lambda X: X * 20, feature_names_out=_add_suffix_fn),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r"^phi_"),
         ),
         (
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                FunctionTransformer(lambda X: X / 150.0, feature_names_out=_add_suffix_fn),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r"^P\d?_"),
         ),
         (
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                FunctionTransformer(lambda X: X / 30.0, feature_names_out=_add_suffix_fn),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r"^Q\d?_"),
         ),
         (
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                FunctionTransformer(lambda X: 1.0 / (1 + np.sqrt(X)), feature_names_out=_add_suffix_fn),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r"^Sk_"),
         ),
@@ -234,15 +231,20 @@ def make_scaler_bus39() -> Any:
 
 
 def make_scaler_interscada_pl() -> Any:
-    def _sf(transformer, input_features: list[str]) -> np.ndarray:
-        return np.array([f"{c}_scaled" for c in input_features], dtype=object)
+    """Per-column StandardScaler - same fix as make_scaler_bus39()/make_scaler_eles() (see
+    paper-sr/EXPERIMENTS.md #16): hardcoded range constants plus a *20 multiply on the angle
+    branch let angle dominate 99.55% of total squared distance pre-fix. The line_status/
+    gen_status topology branch is left unscaled deliberately, not an oversight: it doesn't
+    match RE_TOPO's `oserv_` pattern so it isn't split out of the embedded Qdrant vector, but
+    retrieval is already exact-topology-filtered so those columns are constant within any
+    compared candidate pool regardless of scaling."""
 
     return make_column_transformer(
         (
-            # voltages: per-unit, range ~0.88–1.11 — pass through as-is
+            # voltages: per-unit, range ~0.88-1.11
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                FunctionTransformer(lambda X: X, feature_names_out=_sf),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r".*\[pu\]$"),
         ),
@@ -251,17 +253,15 @@ def make_scaler_interscada_pl() -> Any:
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
                 AngleSinCos(input_in_degrees=True),
-                VarianceThreshold(threshold=0),
-                FunctionTransformer(lambda X: X * 20, feature_names_out=_sf),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r".*\[deg\]$"),
         ),
         (
-            # generator active power: range 50–850 MW
+            # generator active power: range 50-850 MW
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                VarianceThreshold(threshold=0),
-                FunctionTransformer(lambda X: X / 850, feature_names_out=_sf),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r".*Gen_P_MW"),
         ),
@@ -269,17 +269,15 @@ def make_scaler_interscada_pl() -> Any:
             # generator reactive power: range -142 to +424 Mvar
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                VarianceThreshold(threshold=0),
-                FunctionTransformer(lambda X: X / 450, feature_names_out=_sf),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r".*Gen_Q_mvar"),
         ),
         (
-            # load active power: range 0–1911 MW
+            # load active power: range 0-1911 MW
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                VarianceThreshold(threshold=0),
-                FunctionTransformer(lambda X: X / 2000, feature_names_out=_sf),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r".*Load_P_MW"),
         ),
@@ -287,8 +285,7 @@ def make_scaler_interscada_pl() -> Any:
             # load reactive power: range -134 to +465 Mvar
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                VarianceThreshold(threshold=0),
-                FunctionTransformer(lambda X: X / 500, feature_names_out=_sf),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r".*[Oo]ad_Q_mvar"),
         ),
@@ -305,16 +302,18 @@ def make_scaler_interscada_pl() -> Any:
 
 
 def make_scaler_interscada_fr() -> Any:
-    def _sf(transformer, input_features: list[str]) -> np.ndarray:
-        return np.array([f"{c}_scaled" for c in input_features], dtype=object)
+    """Per-column StandardScaler - same fix as make_scaler_interscada_pl() above (see
+    paper-sr/EXPERIMENTS.md #16): hardcoded range constants plus a *20 multiply on the angle
+    branch let angle drive 99.63% of total squared distance pre-fix. The line-name
+    topology-status branch is left unscaled deliberately, same reasoning as interscada/pl's
+    line_status/gen_status branch above."""
 
     return make_column_transformer(
         (
-            # voltages: kV, range 380–429 kV
+            # voltages: kV, range 380-429 kV
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                VarianceThreshold(threshold=0),
-                FunctionTransformer(lambda X: X / 430, feature_names_out=_sf),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r"^V_"),
         ),
@@ -323,8 +322,7 @@ def make_scaler_interscada_fr() -> Any:
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
                 AngleSinCos(input_in_degrees=True),
-                VarianceThreshold(threshold=0),
-                FunctionTransformer(lambda X: X * 20, feature_names_out=_sf),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r"^angle_"),
         ),
@@ -332,8 +330,7 @@ def make_scaler_interscada_fr() -> Any:
             # generator active power: range -1974 to +1224 MW
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                VarianceThreshold(threshold=0),
-                FunctionTransformer(lambda X: X / 2000, feature_names_out=_sf),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r"^Pgen_"),
         ),
@@ -341,8 +338,7 @@ def make_scaler_interscada_fr() -> Any:
             # generator reactive power: range -489 to +944 Mvar
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                VarianceThreshold(threshold=0),
-                FunctionTransformer(lambda X: X / 1000, feature_names_out=_sf),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r"^Qgen_"),
         ),
@@ -350,8 +346,7 @@ def make_scaler_interscada_fr() -> Any:
             # load active power: range -1912 to +2089 MW
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                VarianceThreshold(threshold=0),
-                FunctionTransformer(lambda X: X / 2100, feature_names_out=_sf),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r"^Pload_"),
         ),
@@ -359,8 +354,7 @@ def make_scaler_interscada_fr() -> Any:
             # load reactive power: range -514 to +635 Mvar
             make_pipeline(
                 SimpleImputer(strategy="constant", fill_value=0.0, keep_empty_features=True),
-                VarianceThreshold(threshold=0),
-                FunctionTransformer(lambda X: X / 650, feature_names_out=_sf),
+                StandardScaler(),
             ),
             make_column_selector(pattern=r"^Qload_"),
         ),
