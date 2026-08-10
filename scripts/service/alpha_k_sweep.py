@@ -34,6 +34,12 @@ from src.services.qdrant.config import get_qdrant_config
 logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
+# Evaluation artifacts don't belong at the repo root: raw/intermediate (.joblib) go to tmp/,
+# CSV summaries the paper actually consumes go to paper-sr/data/ (2026-08-05 cleanup).
+TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
+PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
+PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 K_VALUES: Final[tuple[int, ...]] = (25, 50, 100, 200)
 ALPHA_VALUES: Final[tuple[float, ...]] = (0.5, 1.0, 2.0)
@@ -49,8 +55,8 @@ STATES_PER_FOLD: Final[int] = 300
 # default 42 matches the seed used for the paper's originally reported sweep.
 SAMPLE_SEED: Final[int] = int(os.environ.get("ALPHA_K_SWEEP_SAMPLE_SEED", "42"))
 _SEED_SUFFIX = "" if SAMPLE_SEED == 42 else f"-seed{SAMPLE_SEED}"
-REPORT_PATH: Final[Path] = PROJECT_DIR / f"report-alpha-k-sweep{_SEED_SUFFIX}.joblib"
-CSV_PATH: Final[Path] = PROJECT_DIR / f"alpha_k_sweep{_SEED_SUFFIX}.csv"
+REPORT_PATH: Final[Path] = TMP_DIR / f"report-alpha-k-sweep{_SEED_SUFFIX}.joblib"
+CSV_PATH: Final[Path] = PAPER_DATA_DIR / f"alpha_k_sweep{_SEED_SUFFIX}.csv"
 
 
 def _configured_dataset_paths() -> tuple[Path, Path]:
