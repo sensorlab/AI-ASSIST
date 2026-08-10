@@ -12,7 +12,7 @@ All raw data is packed in `raw/data.zip`:
 |---|---|---|
 | `LF_main.csv` | Load-flow features (LF) | 21,783 states × 221 columns |
 | `TSA_main.csv` | Transient stability targets | Wide format, 5 fields × N experiments per row |
-| `FSA_main.csv` | Frequency stability indices | Not used (parser stubbed as `NotImplemented`) |
+| `FSA_main.csv` | Frequency stability indices | Parsed - see "FSA file" below |
 | `SSSA_main.csv` | Small-signal stability indices | Not used |
 | `Bus39.jpg` | Grid diagram | |
 | `Razlaga_zapisa_vzorcev.docx` | Slovenian data dictionary (source of truth for column semantics) | |
@@ -55,7 +55,14 @@ All raw data is packed in `raw/data.zip`:
 
 `oserv_G_NN` and `oserv_Line_*` — 44 columns identified by regex `oserv?_.*`. The data dictionary claims `0` = in service, `1` = not in service, but the archive is uniformly `1` with the grid demonstrably energised, so `1` = in service. See the Design Decisions note above.
 
-### Unused datasets
+### FSA file (`FSA_main.csv`)
 
-- **FSA** (`FSA_main.csv`): Per-generator frequency stability indices — minimum frequency, maximum frequency, max RoCoF, and margins M1/M2/M3 at 95%/97%/99% of nominal frequency. Parser exists in `transform.py` but raises `NotImplementedError`.
-- **SSSA** (`SSSA_main.csv`): Small-signal stability modes — real part (damping, 1/s) and imaginary part (frequency, rad/s). Not parsed. Note: mode indices across different operating states do not correspond to the same physical mode.
+Columns repeat as `minF_N / maxF_N / maxRoCoF_N / M1_N / M2_N / M3_N` for N = 0…9 (10 generators), one row per operating state - `pd.wide_to_long` reshapes this to one row per (state, failed generator), 217,822 rows after dropping 8 corrupt rows (see below).
+
+- **No generator names, no measured-generator dimension**: the data dictionary is explicit on both points - "Imena generatorjev niso podane" (generator names are not given) and "Vse veličine so gledane globalno" (all quantities are viewed globally, i.e. the worst case across the whole system is reported, not a per-generator measurement). So this dataset has neither of ELES's two FSA dimensions in their named form: `failed_gen` is stored as an anonymized `fsa_gen_N` label (the dictionary confirms N maps to the *same* physical generator in every state, just not which one), and is **not comparable to TSA's `Crit_gen` names** (`G 03`–`G 10`) even though both range over the same 10 generators. `measured_gen` is a constant `"system"` placeholder, since there's nothing to group by - purely there so this fits `EstimationService`'s shared `(failed_gen, measured_gen)` FSA report shape.
+- **Corrupt rows dropped**: 8 of 217,830 rows (0.004%, 7 of them `failed_gen=fsa_gen_0`) carry a simulation-divergence artifact from the source tool rather than a real result - e.g. one row has `minF_0 = -3.7722735745865803e+149` verbatim in the raw CSV, another has `maxRoCoF_0` in the billions. Dropped by a generous physical-plausibility filter (`|minF|`/`|maxF|`/`|maxRoCoF| <= 5`, `M1`/`M2`/`M3` within `[0, 100]`) against a legitimate observed range of `|minF|`/`|maxF| <= 1.16`, `maxRoCoF <= 0.047` - wide enough margin that this should only catch genuine blow-ups, not real severe events. Logged as `fsa_long dropped N rows with implausible (simulation-divergence) values`.
+- **`M1`/`M2`/`M3` stub-name collision**: `standardize_col_name()` pads every digit run to 2 digits, including the one inside `M1`/`M2`/`M3` themselves (`M1_0` → `M01_00`) - `transform.py` melts on the padded `M01`/`M02`/`M03` stub names, then renames back to `M1`/`M2`/`M3` for the returned columns. (This same collision looks unhandled in `datasets/eles/2026-01/transform.py`'s `FSA_METRICS`, which still lists `"M1"` as a `melt_fsa()` prefix after the same renaming step - not fixed here, out of scope for this dataset.)
+
+### SSSA (`SSSA_main.csv`)
+
+Not parsed. Small-signal stability modes — real part (damping, 1/s) and imaginary part (frequency, rad/s), 9 modes per state. Unlike FSA, there's no way to fit this into `EstimationService`'s SSSA shape at all: ELES's SSSA is `(state, mode_id, generator)` with a participation-magnitude vector per generator (used for `estimate_sssa_by_generator()`'s grouping and `matched_mode`'s cross-state cosine matching), but BUS39's `SSSA_main.csv` has no generator dimension whatsoever - just `(state, mode_id) -> (real_part, imag_part)`. Forcing it through the existing generator-grouping API would require either a meaningless placeholder generator (breaking `matched_mode`'s cosine-similarity math, which degenerates on empty/all-zero participation vectors) or new generator-less SSSA support in the shared domain model - deliberately not attempted, pending a real decision on which approach is worth the cost.

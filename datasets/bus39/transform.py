@@ -53,22 +53,79 @@ def prepare_lf_dataset(path: Path) -> pd.DataFrame:
     return lf
 
 
-def prepare_fsa_dataset(path: Path) -> pd.DataFrame:
-    raise NotImplementedError
-    # Load FSA
+FSA_METRICS = ("minF", "maxF", "maxRoCoF", "M1", "M2", "M3")
 
+
+def prepare_fsa_dataset(path: Path) -> pd.DataFrame:
+    """Frequency-stability records. Two quirks from the raw data dictionary
+    (Razlaga_zapisa_vzorcev.docx) shape this, both documented in the README's "Unused
+    datasets" section:
+
+    1. The dictionary explicitly withholds which physical generator each `_N` index
+       corresponds to ("Imena generatorjev niso podane" - generator names are not given),
+       while confirming the index is at least consistent across every state (same index
+       means the same generator throughout). So `failed_gen` here is deliberately an
+       anonymized `fsa_gen_N` label, not comparable to TSA's `Crit_gen` names ("G 03".."G 10")
+       even though both range over the same 10 generators.
+    2. minF/maxF/maxRoCoF/M1/M2/M3 are global worst-case system values ("Vse veličine so
+       gledane globalno, kar pomeni da je predstavljen najslabši primer izmed vseh"), not
+       measured at a specific generator - unlike ELES's (failed_gen, measured_gen) pairs,
+       there is no measured_gen dimension in this dataset at all. `measured_gen` is a
+       constant "system" placeholder purely so this fits EstimationService's shared FSA
+       report shape (`_fsa_reports_by_pair()` groups by `["failed_gen", "measured_gen"]`).
+    """
     if not path.exists():
         raise OSError
 
     fsa = pd.read_csv(path, sep=";", decimal=",", index_col=0)
     fsa = fsa.rename(columns=standardize_col_name)
+    fsa = fsa.copy()  # defragment
+    fsa["state"] = fsa.index
+
+    # standardize_col_name pads every digit run to 2 digits, including the one inside "M1"/
+    # "M2"/"M3" themselves (e.g. "M1_0" -> "M01_00") - melt on the padded stub names, then
+    # rename back to the data-dictionary-facing M1/M2/M3 for the returned metric columns.
+    fsa_long = pd.wide_to_long(
+        fsa,
+        stubnames=["minF", "maxF", "maxRoCoF", "M01", "M02", "M03"],
+        i=["state"],
+        j="failed_gen_idx",
+        sep="_",
+        suffix=r"\d+",
+    ).reset_index()
+    fsa_long = fsa_long.rename(columns={"M01": "M1", "M02": "M2", "M03": "M3"})
+
+    fsa_long["failed_gen"] = "fsa_gen_" + fsa_long.pop("failed_gen_idx").astype(str)
+    fsa_long["measured_gen"] = "system"
+    fsa_long = fsa_long[["state", "failed_gen", "measured_gen", *FSA_METRICS]]
+
+    # Quirk: a handful of rows (8/217830 in the current archive, 7 of them failed_gen 0) carry
+    # a simulation-divergence artifact from the source tool rather than a real result - e.g.
+    # state 15668 has minF_0 = -3.77e+149 verbatim in the raw CSV. maxRoCoF alone catches every
+    # currently-known case, but the bound is applied to all three physical metrics as a general
+    # "not a plausible frequency-stability result" filter rather than one tuned to today's
+    # specific outliers. Bounds are deliberately generous relative to the legitimate range
+    # observed in this archive (|minF|/|maxF| <= 1.16, maxRoCoF <= 0.047) so this only catches
+    # genuine blow-ups, not real severe events. M1/M2/M3 are margins in seconds with a
+    # documented sentinel cap of 100 (no crossing) - never legitimately outside [0, 100].
+    prev = len(fsa_long)
+    physically_valid = (
+        fsa_long["minF"].abs().le(5)
+        & fsa_long["maxF"].abs().le(5)
+        & fsa_long["maxRoCoF"].abs().le(5)
+        & fsa_long["M1"].between(0, 100)
+        & fsa_long["M2"].between(0, 100)
+        & fsa_long["M3"].between(0, 100)
+    )
+    fsa_long = fsa_long.loc[physically_valid]
+    logger.info(f"fsa_long dropped {prev - len(fsa_long)} rows with implausible (simulation-divergence) values")
 
     # Sanity checks before writing to disk.
-    fsa = optimize_dataframe(fsa)
-    if not (fsa.isnull().sum().sum() == 0):
+    fsa_long = optimize_dataframe(fsa_long)
+    if not (fsa_long.isnull().sum().sum() == 0):
         raise ValueError
 
-    return fsa
+    return fsa_long
 
 
 def prepare_tsa_dataset(path: Path) -> pd.DataFrame:
@@ -137,9 +194,10 @@ def main(in_dir: Path, out_dir: Path):
     tsa.to_pickle(out_dir / "tsa.pkl")
     write_sqlite_table(tsa, out_dir.parent / "processed" / "tsa.db", table="tsa")
 
-    # print("Prepare FSA dataset ...")
-    # fsa = prepare_fsa_dataset(in_dir / "FSA_main.csv")
-    # fsa.to_pickle(out_dir / "fsa.pkl")
+    logger.info("Prepare FSA dataset ...")
+    fsa = prepare_fsa_dataset(in_dir / "FSA_main.csv")
+    fsa.to_pickle(out_dir / "fsa.pkl")
+    write_sqlite_table(fsa, out_dir.parent / "processed" / "fsa.db", table="fsa")
 
     logger.info("Merge LF+TSA dataset ...")
     lf_tsa = tsa.merge(lf, how="left", left_on="state", right_index=True)
@@ -156,17 +214,6 @@ def main(in_dir: Path, out_dir: Path):
     topo_cols = filter_topology_cols(lf_cols=lf.columns)
     joblib.dump(topo_cols, out_dir / "topology_cols.joblib.z")
     write_json_list(topo_cols, out_dir.parent / "processed" / "topology_cols.json")
-
-    # print("Merge LF+FSA dataset ...")
-    # lf_fsa = fsa.merge(lf, how="left", left_index=True, right_index=True)
-    # lf_fsa.to_pickle(out_dir / "lf_fsa_merged.pkl")
-
-    # # Sanity checks before writing to disk.
-    # if not (lf_fsa.isnull().sum().sum() == 0):
-    #     raise ValueError
-
-    # if not (len(lf_fsa) >= len(fsa)):
-    #     raise ValueError
 
 
 if __name__ == "__main__":
