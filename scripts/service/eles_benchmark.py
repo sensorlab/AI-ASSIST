@@ -53,6 +53,12 @@ from src.services.sqlite_store import SqliteRecordStore
 logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
+# Evaluation artifacts don't belong at the repo root: raw/intermediate (.joblib) go to tmp/,
+# CSV summaries the paper actually consumes go to paper-sr/data/ (2026-08-05 cleanup).
+TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
+PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
+PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 COVERAGES: Final[tuple[float, ...]] = (1.0, 0.95, 0.9, 0.8, 0.7, 0.5)
 # Optional query-side subsampling (env ELES_BENCHMARK_SAMPLE_STATES), for topology-variant
 # comparisons where the full leave-one-group-out pass is intractable - e.g. under a variant
@@ -174,8 +180,8 @@ def main() -> None:
         variant_tag = f"{config.topology_variant}-sample{sample_states}"
         if SAMPLE_SEED != 42:
             variant_tag = f"{variant_tag}-seed{SAMPLE_SEED}"
-    report_path = PROJECT_DIR / f"report-{safe_dataset}-{variant_tag}.joblib"
-    risk_coverage_path = PROJECT_DIR / f"risk_coverage_{safe_dataset}_{variant_tag}.csv"
+    report_path = TMP_DIR / f"report-{safe_dataset}-{variant_tag}.joblib"
+    risk_coverage_path = PAPER_DATA_DIR / f"risk_coverage_{safe_dataset}_{variant_tag}.csv"
 
     lf = pd.read_pickle(lf_path)
     if sample_states:

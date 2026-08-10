@@ -58,8 +58,13 @@ from src.services.sqlite_store import SqliteRecordStore
 logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
-REPORT_PATH: Final[Path] = PROJECT_DIR / "report-eles2026-01-candidate-topology.joblib"
-RISK_COVERAGE_PATH: Final[Path] = PROJECT_DIR / "risk_coverage_eles2026-01-candidate-topology.csv"
+# Evaluation artifacts don't belong at the repo root; this script is superseded by
+# eles_benchmark.py for eles/2026-06 (see its own docstring) and eles/2026-01 is out of
+# paper-sr's scope, so both outputs go to tmp/ rather than paper-sr/data/ (2026-08-05 cleanup).
+TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
+REPORT_PATH: Final[Path] = TMP_DIR / "report-eles2026-01-candidate-topology.joblib"
+RISK_COVERAGE_PATH: Final[Path] = TMP_DIR / "risk_coverage_eles2026-01-candidate-topology.csv"
 
 COVERAGES: Final[tuple[float, ...]] = (1.0, 0.95, 0.9, 0.8, 0.7, 0.5)
 
