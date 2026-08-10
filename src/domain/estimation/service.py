@@ -8,6 +8,7 @@ import pandas as pd
 from scipy.spatial.distance import pdist
 from sklearn.compose import make_column_selector, make_column_transformer
 from sklearn.impute import SimpleImputer
+from sklearn.neighbors import NearestNeighbors
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -22,6 +23,7 @@ from src.domain.estimation.models import (
     LocationReportSummary,
     Report,
     ReportNeighbor,
+    SssaModeMatch,
     SssaNeighbor,
     Stats,
 )
@@ -394,6 +396,23 @@ def _ensure_finite(name: str, values: np.ndarray, *, crit_gen: str) -> None:
         raise ValueError(f"Non-finite values found in `{name}` for crit_gen={crit_gen}")
 
 
+# Candidate pool size for _match_sssa_modes' combined-rank re-ranking (cosine-rank +
+# eigenvalue-rank), matching the value validated in scripts/service/eles_sssa_mode_similarity_eval.py.
+_SSSA_MATCH_CANDIDATES = 50
+
+
+def _rank_along_rows(values: np.ndarray) -> np.ndarray:
+    """Rank each row's entries ascending (0 = smallest) - used to combine cosine-rank and
+    eigenvalue-rank without letting their very different scales (cosine distance ~1e-4,
+    eigenvalue distance ~1-10) dominate a raw sum. Same approach as
+    scripts/service/eles_sssa_mode_similarity_eval.py's _rank_along_rows."""
+    order = np.argsort(values, axis=1, kind="stable")
+    ranks = np.empty_like(order)
+    rows = np.arange(values.shape[0])[:, None]
+    ranks[rows, order] = np.arange(values.shape[1])[None, :]
+    return ranks
+
+
 def _normalized_weights(distances: np.ndarray, *, crit_gen: str, alpha: float = 1.0) -> np.ndarray:
     if distances.size == 0:
         raise ValueError(f"No distances found for crit_gen={crit_gen}")
@@ -599,21 +618,34 @@ class EstimationService:
         state: Mapping[str, float | None],
         exclude_uids: Iterable[str],
         n_neighbors: int | None = None,
-    ) -> tuple[pd.DataFrame, list[str], np.ndarray]:
+    ) -> pd.DataFrame:
         """SSSA analog of _query_enriched_fsa_neighbors. Coverage isn't universal per state -
         some states have no recorded SSSA modes at all - so an inner join silently excludes
-        such states rather than treating that as an error, same as FSA."""
+        such states rather than treating that as an error, same as FSA.
+
+        Unlike FSA/TSA, SSSA is raw/unweighted (it never calls _weight_group, so it has no
+        need for per-row embed_cols - a single per-state distance is all any consumer uses).
+        distance is therefore computed here, once per retrieved state on the small `rows`
+        frame, and joined onto sssa_subset as one extra column - NOT by merging the full
+        wide embed_cols matrix onto every SSSA row the way _query_enriched_fsa_neighbors
+        does (that pattern is fine for FSA/TSA's much smaller per-state row multiplicity, but
+        is unsafe here: eles/2026-01's per-mode generator coverage averages ~75% of 70
+        generators, so max_states=100 can retrieve on the order of 900k SSSA rows - merging
+        thousands of embed_cols onto every one of those, instead of once per ~100 retrieved
+        states, is enough to exhaust available memory on a real query. Confirmed by
+        reproducing it against a live eles/2026-01 service - see TODO.md."""
         if self.sssa is None:
             raise NotImplementedError("This dataset does not provide SSSA (small-signal stability) data")
 
         rows, embed_cols, X_query = self._query_neighbors(state, exclude_uids, n_neighbors)
+        X_neighbors = rows[embed_cols].to_numpy(dtype=np.float64)
+        _ensure_finite("X_neighbors", X_neighbors, crit_gen="sssa")
+        distances = pd.Series(
+            query_distances(X_query=X_query, X_neighbor=X_neighbors), index=rows.index, name="distance"
+        )
 
         sssa_subset = self.sssa.fetch(rows.index)
-        lf_sssa = rows.merge(sssa_subset, how="inner", left_index=True, right_on="state")
-        if lf_sssa.empty:
-            return lf_sssa, [], np.empty((1, 0), dtype=np.float64)
-
-        return lf_sssa, embed_cols, X_query
+        return sssa_subset.merge(distances, how="inner", left_on="state", right_index=True)
 
     def _weight_group(
         self,
@@ -1000,6 +1032,91 @@ class EstimationService:
         assert self.sssa is not None
         return [c for c in self.sssa.columns if c not in ("state", "mode_id", "generator", "real_part", "imag_part")]
 
+    def _sssa_participation_cols(self) -> list[str]:
+        """Participation-factor *magnitude* columns (ParMag / ParMag_<state_var>) - the
+        subset of _sssa_metric_cols() used to build a matchable participation vector per
+        mode in _match_sssa_modes(), identified generically by name (mirrors
+        _transform_sssa_angles' "Ang" detection) rather than a per-dataset hardcoded list."""
+        return [c for c in self._sssa_metric_cols() if c == "ParMag" or c.startswith("ParMag_")]
+
+    def _match_sssa_modes(self, lf_sssa: pd.DataFrame) -> dict[tuple[str, int], SssaModeMatch | None]:
+        """For every distinct (state, mode_id) mode in the currently retrieved SSSA neighbor
+        set, finds its single best cross-state counterpart by participation-vector cosine
+        similarity + eigenvalue-proximity tiebreak (combined rank) - the strategy validated
+        in scripts/service/eles_sssa_mode_similarity_eval.py (see
+        datasets/eles/2026-06/README.md's "SSSA Mode Similarity" section: 0.2%/7.3% bad-match
+        rate on eles/2026-06/eles/2026-01, vs 3.4%/11.9% for cosine-only). Computed fresh per
+        query over just the retrieved neighbor set (order 1e3 modes, not the full corpus) -
+        mode_id numbering isn't stable across states, so this match is local to the current
+        response, not a stable cross-corpus identity. No confidence threshold is applied:
+        every mode's best cross-state candidate (if any other retrieved state has SSSA modes
+        at all) is returned with its raw distances, so callers pick their own bar rather than
+        have one silently baked in here - see SssaModeMatch.
+
+        The candidate pool per mode must be wider than _SSSA_MATCH_CANDIDATES alone: if a
+        mode's own state contributes more than _SSSA_MATCH_CANDIDATES modes to the retrieved
+        set (routine for eles/2026-01, which averages ~179 modes/state - eles/2026-06's ~14.6
+        is in no danger of this), a fixed-size pool can fill up entirely with same-state
+        candidates before ever reaching a real cross-state one, silently returning None even
+        when an excellent match exists (reproduced directly: a state with 60 tightly-
+        clustered modes and a near-identical cross-state counterpart still returned None at a
+        fixed pool of 50). The pool is therefore widened by the largest single-state mode
+        count actually present in this retrieved set, so every mode keeps a full
+        _SSSA_MATCH_CANDIDATES-sized window of candidates left over after its own state's
+        modes are exhausted, guaranteeing "no other retrieved state has SSSA modes at all" is
+        the only reason left to return None."""
+        participation_cols = self._sssa_participation_cols()
+        parmag = lf_sssa[["state", "mode_id", "generator", *participation_cols]].copy()
+        parmag["parmag"] = parmag[participation_cols].max(axis=1, skipna=True).fillna(0.0)
+        pivot = parmag.pivot_table(index=["state", "mode_id"], columns="generator", values="parmag", fill_value=0.0)
+
+        modes = pivot.index.to_frame(index=False).reset_index(drop=True)
+        keys = list(zip(modes["state"], modes["mode_id"], strict=True))
+        n = len(modes)
+        if n < 2:
+            return dict.fromkeys((str(s), int(m)) for s, m in keys)
+
+        vectors = pivot.to_numpy(dtype=np.float64)
+        states = modes["state"].to_numpy()
+        mode_ids = modes["mode_id"].to_numpy()
+
+        eigen = lf_sssa.drop_duplicates(["state", "mode_id"]).set_index(["state", "mode_id"])
+        real_arr = eigen.loc[keys, "real_part"].to_numpy()
+        imag_arr = eigen.loc[keys, "imag_part"].to_numpy()
+
+        max_same_state_modes = int(pd.Series(states).value_counts().max())
+        n_candidates = min(n, max_same_state_modes + _SSSA_MATCH_CANDIDATES)
+        nn = NearestNeighbors(n_neighbors=n_candidates, metric="cosine", algorithm="brute", n_jobs=-1)
+        nn.fit(vectors)
+        cos_dist, indices = nn.kneighbors(vectors)
+
+        same_state_mask = states[indices] == states[:, None]
+        eig_dist = np.hypot(real_arr[indices] - real_arr[:, None], imag_arr[indices] - imag_arr[:, None])
+
+        cos_masked = np.where(same_state_mask, np.inf, cos_dist)
+        eig_masked = np.where(same_state_mask, np.inf, eig_dist)
+        combined_rank = _rank_along_rows(cos_masked) + _rank_along_rows(eig_masked)
+
+        rows = np.arange(n)
+        best_col = np.argmin(combined_rank, axis=1)
+        unmatched = np.isinf(cos_masked[rows, best_col])
+        best_idx = indices[rows, best_col]
+
+        matches: dict[tuple[str, int], SssaModeMatch | None] = {}
+        for i, (state, mode_id) in enumerate(keys):
+            key = (str(state), int(mode_id))
+            if unmatched[i]:
+                matches[key] = None
+            else:
+                j = best_idx[i]
+                matches[key] = SssaModeMatch(
+                    state=str(states[j]),
+                    mode_id=int(mode_ids[j]),
+                    cosine_distance=float(cos_dist[i, best_col[i]]),
+                    eigenvalue_distance=float(eig_dist[i, best_col[i]]),
+                )
+        return matches
+
     @staticmethod
     def _transform_sssa_angles(metrics: dict[str, float]) -> dict[str, float]:
         """Passthrough placeholder for a future AngleSinCos-style treatment of SSSA's raw-degree
@@ -1025,20 +1142,16 @@ class EstimationService:
         only generator is, since generator identity is comparable across states. No
         weighting/summary is computed here by design, pending domain input on what
         aggregation (if any) is wanted; every retrieved (state, mode_id, generator) row is
-        returned as-is. Raises NotImplementedError (mapped to HTTP 501 at the API layer, if
-        ever exposed there) if the active dataset has no SSSA data."""
-        lf_sssa, embed_cols, X_query = self._query_enriched_sssa_neighbors(
-            state=state, exclude_uids=exclude_uids, n_neighbors=n_neighbors
-        )
+        returned as-is, augmented with matched_mode (see _match_sssa_modes) so a mode's
+        likely cross-state counterpart is visible despite mode_id itself being incomparable.
+        Raises NotImplementedError (mapped to HTTP 501 at the API layer, if ever exposed
+        there) if the active dataset has no SSSA data."""
+        lf_sssa = self._query_enriched_sssa_neighbors(state=state, exclude_uids=exclude_uids, n_neighbors=n_neighbors)
         if lf_sssa.empty:
             return {}
 
         metric_cols = self._sssa_metric_cols()
-        X_neighbors = lf_sssa[embed_cols].to_numpy(dtype=np.float64)
-        _ensure_finite("X_neighbors", X_neighbors, crit_gen="sssa")
-
-        lf_sssa = lf_sssa.copy()
-        lf_sssa["distance"] = query_distances(X_query=X_query, X_neighbor=X_neighbors)
+        mode_matches = self._match_sssa_modes(lf_sssa)
 
         reports: dict[str, list[SssaNeighbor]] = {}
         for generator_value, subset in lf_sssa.groupby("generator", dropna=False):
@@ -1051,6 +1164,7 @@ class EstimationService:
                     real_part=float(item["real_part"]),
                     imag_part=float(item["imag_part"]),
                     metrics=self._transform_sssa_angles({m: float(item[m]) for m in metric_cols}),
+                    matched_mode=mode_matches[(str(item["state"]), int(item["mode_id"]))],
                     distance=float(item["distance"]),
                 )
                 for item in subset[["state", "mode_id", "real_part", "imag_part", *metric_cols, "distance"]].to_dict(
