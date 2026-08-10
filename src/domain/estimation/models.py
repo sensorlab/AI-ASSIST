@@ -170,6 +170,20 @@ class FsaReport(BaseModel):
     per_neighbor: list[FsaReportNeighbor]
 
 
+class SssaModeMatch(BaseModel):
+    """A mode's single best cross-state counterpart within the current query's retrieved
+    neighbor set, by participation-vector cosine similarity + eigenvalue-proximity tiebreak
+    (see datasets/eles/2026-06/README.md's "SSSA Mode Similarity" investigation). Local to
+    this one response, not a stable cross-corpus identity - mode_id numbering itself isn't
+    stable across states, and this match is only ever computed over whatever states a given
+    query happens to retrieve, so the same mode can get a different (or no) match next time."""
+
+    state: str
+    mode_id: int
+    cosine_distance: float
+    eigenvalue_distance: float
+
+
 class SssaNeighbor(BaseModel):
     """A single retrieved (state, mode_id) row for one generator - raw, unweighted. mode_id
     is a per-state local identifier only (mode indices aren't comparable across operating
@@ -183,4 +197,13 @@ class SssaNeighbor(BaseModel):
     # ParAng_Psi2q for eles/2026-06, plain ConMag/ObsMag/... for eles/2026-01) - kept generic
     # rather than named fields, same reasoning as FsaReportNeighbor.metrics.
     metrics: dict[str, float]
+    matched_mode: SssaModeMatch | None = Field(
+        ...,
+        description=(
+            "This mode's best cross-state counterpart, if any other retrieved state has SSSA "
+            "modes at all. No confidence threshold is applied - the two datasets' eigenvalue "
+            "ranges aren't on the same absolute scale, so callers should judge match quality "
+            "themselves from cosine_distance/eigenvalue_distance rather than trust a fixed cutoff."
+        ),
+    )
     distance: float

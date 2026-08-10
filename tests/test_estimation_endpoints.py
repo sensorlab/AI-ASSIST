@@ -17,6 +17,7 @@ from src.domain.estimation.models import (
     LocationReportSummary,
     Report,
     ReportNeighbor,
+    SssaNeighbor,
     Stats,
 )
 from src.domain.estimation.service import EstimationService
@@ -120,6 +121,34 @@ def _service_with_sssa() -> EstimationService:
     )
 
 
+def _service_with_sssa_mode_shapes() -> EstimationService:
+    """Dedicated fixture for matched_mode tests - unlike _service_with_sssa() above, this
+    includes ParMag (participation magnitude) so cosine-similarity matching has real signal
+    to work with. s1/mode1 and s2/mode1 share the same shape (dominant GenA, minor GenB) and
+    a close eigenvalue - the intended cross-state match. s1/mode2 is deliberately shaped and
+    positioned differently (GenA only, far-off eigenvalue) so it has no good cross-state
+    candidate, exercising the "no confidence threshold" behavior."""
+    tsa = pd.DataFrame({"state": ["s1"], "CCT": [1.0], "Location": ["L1"], "Crit_gen": ["G1"], "Terminal": ["T1"]})
+    sssa = pd.DataFrame(
+        {
+            "state": ["s1", "s1", "s1", "s2", "s2"],
+            "mode_id": [1, 1, 2, 1, 1],
+            "generator": ["GenA", "GenB", "GenA", "GenA", "GenB"],
+            "real_part": [-0.1, -0.1, -9.0, -0.15, -0.15],
+            "imag_part": [5.0, 5.0, 50.0, 5.2, 5.2],
+            "ObsMag": [0.10, 0.20, 0.30, 0.40, 0.45],
+            "ParMag": [0.9, 0.1, 0.9, 0.85, 0.15],
+        }
+    )
+    return EstimationService(
+        columns=["x"],
+        scaler=_IdentityScaler(),
+        tsa=_FakeRecordStore(tsa),
+        db=_FakeDb(),
+        sssa=_FakeRecordStore(sssa),
+    )
+
+
 def _location_report() -> LocationReport:
     return LocationReport(
         summary=LocationReportSummary(
@@ -207,6 +236,15 @@ class _RouteService:
     def estimate_by_failed_generator(self, *, state, exclude_uids, n_neighbors=None):
         return {"FG1": {"MG1": _fsa_report()}}
 
+    def estimate_sssa_by_generator(self, *, state, exclude_uids, n_neighbors=None):
+        return {
+            "GenA": [
+                SssaNeighbor(
+                    state="s1", mode_id=1, real_part=-0.1, imag_part=5.0, metrics={}, matched_mode=None, distance=0.0
+                )
+            ]
+        }
+
 
 class _RouteServiceWithoutFsa(_RouteService):
     def estimate_by_observed_generator(self, *, state, exclude_uids, n_neighbors=None):
@@ -214,6 +252,11 @@ class _RouteServiceWithoutFsa(_RouteService):
 
     def estimate_by_failed_generator(self, *, state, exclude_uids, n_neighbors=None):
         raise NotImplementedError("This dataset does not provide FSA data")
+
+
+class _RouteServiceWithoutSssa(_RouteService):
+    def estimate_sssa_by_generator(self, *, state, exclude_uids, n_neighbors=None):
+        raise NotImplementedError("This dataset does not provide SSSA (small-signal stability) data")
 
 
 class EstimationServiceEndpointTests(unittest.TestCase):
@@ -409,6 +452,94 @@ class EstimationServiceEndpointTests(unittest.TestCase):
         all_states = {n.state for neighbors in by_generator.values() for n in neighbors}
         self.assertNotIn("s4", all_states)
 
+    def test_estimate_sssa_by_generator_attaches_best_cross_state_mode_match(self):
+        service = _service_with_sssa_mode_shapes()
+
+        by_generator = service.estimate_sssa_by_generator({"x": 0.0}, exclude_uids=[])
+
+        # s1/mode1 (dominant GenA, minor GenB) is shaped like s2/mode1 and close in
+        # eigenvalue too - both cosine and eigenvalue agree it's the best cross-state match.
+        mode_s1_1 = next(n for n in by_generator["GenA"] if n.state == "s1" and n.mode_id == 1)
+        self.assertIsNotNone(mode_s1_1.matched_mode)
+        self.assertEqual(mode_s1_1.matched_mode.state, "s2")
+        self.assertEqual(mode_s1_1.matched_mode.mode_id, 1)
+
+        # The match is symmetric here since s2/mode1 only has one cross-state candidate.
+        mode_s2_1 = next(n for n in by_generator["GenA"] if n.state == "s2" and n.mode_id == 1)
+        self.assertIsNotNone(mode_s2_1.matched_mode)
+        self.assertEqual(mode_s2_1.matched_mode.state, "s1")
+        self.assertEqual(mode_s2_1.matched_mode.mode_id, 1)
+
+        # matched_mode is computed per (state, mode_id) and repeats across every generator
+        # row sharing that mode - GenB's s1/mode1 row must report the same match as GenA's.
+        mode_s1_1_genb = by_generator["GenB"][0]
+        self.assertEqual(mode_s1_1_genb.state, "s1")
+        self.assertEqual(mode_s1_1_genb.mode_id, 1)
+        self.assertEqual(mode_s1_1_genb.matched_mode.state, "s2")
+        self.assertEqual(mode_s1_1_genb.matched_mode.mode_id, 1)
+
+        # s1/mode2 is shaped completely differently (GenA only, eigenvalue far away) - its
+        # only cross-state candidate is still s2/mode1 (the only other state retrieved), and
+        # it must still be returned despite being a poor match: no confidence threshold is
+        # applied, so a bad match is surfaced with a large eigenvalue_distance rather than
+        # silently dropped.
+        mode_s1_2 = next(n for n in by_generator["GenA"] if n.state == "s1" and n.mode_id == 2)
+        self.assertIsNotNone(mode_s1_2.matched_mode)
+        self.assertEqual(mode_s1_2.matched_mode.state, "s2")
+        self.assertGreater(mode_s1_2.matched_mode.eigenvalue_distance, mode_s1_1.matched_mode.eigenvalue_distance)
+
+    def test_sssa_mode_match_is_none_without_a_second_state(self):
+        tsa = pd.DataFrame({"state": ["s1"], "CCT": [1.0], "Location": ["L1"], "Crit_gen": ["G1"], "Terminal": ["T1"]})
+        sssa = pd.DataFrame(
+            {
+                "state": ["s1", "s1"],
+                "mode_id": [1, 2],
+                "generator": ["GenA", "GenA"],
+                "real_part": [-0.1, -0.2],
+                "imag_part": [5.0, 6.0],
+                "ObsMag": [0.1, 0.2],
+                "ParMag": [0.9, 0.8],
+            }
+        )
+        service = EstimationService(
+            columns=["x"],
+            scaler=_IdentityScaler(),
+            tsa=_FakeRecordStore(tsa),
+            db=_FakeDb(),
+            sssa=_FakeRecordStore(sssa),
+        )
+
+        by_generator = service.estimate_sssa_by_generator({"x": 0.0}, exclude_uids=[])
+
+        # Only s1 has SSSA coverage (s2/s3/s4 are absent from the fixture) - every mode's
+        # only candidates are within its own state, so nothing can match.
+        self.assertTrue(all(n.matched_mode is None for n in by_generator["GenA"]))
+
+    def test_sssa_mode_match_handles_single_retrieved_mode_without_error(self):
+        tsa = pd.DataFrame({"state": ["s1"], "CCT": [1.0], "Location": ["L1"], "Crit_gen": ["G1"], "Terminal": ["T1"]})
+        sssa = pd.DataFrame(
+            {
+                "state": ["s1"],
+                "mode_id": [1],
+                "generator": ["GenA"],
+                "real_part": [-0.1],
+                "imag_part": [5.0],
+                "ObsMag": [0.1],
+                "ParMag": [0.9],
+            }
+        )
+        service = EstimationService(
+            columns=["x"],
+            scaler=_IdentityScaler(),
+            tsa=_FakeRecordStore(tsa),
+            db=_FakeDb(),
+            sssa=_FakeRecordStore(sssa),
+        )
+
+        by_generator = service.estimate_sssa_by_generator({"x": 0.0}, exclude_uids=[])
+
+        self.assertIsNone(by_generator["GenA"][0].matched_mode)
+
 
 class EstimationRouteTests(unittest.TestCase):
     def setUp(self):
@@ -460,6 +591,16 @@ class EstimationRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["inputs"]["max_states"], 7)
 
+    def test_max_states_above_upper_bound_is_rejected(self):
+        response = self.client.post(
+            "/api/v1/estimate/tsa/by-generator",
+            json={"variant": "1.0.0", "state": {"x": 0.0}, "exclude_uids": [], "max_states": 501},
+        )
+
+        # Pydantic validation, not the route body - a 422, not the 400 estimate_by_generator
+        # itself raises for bad state columns.
+        self.assertEqual(response.status_code, 422)
+
     def test_by_location_endpoint_returns_location_first_response(self):
         response = self.client.post(
             "/api/v1/estimate/tsa/by-location",
@@ -490,6 +631,16 @@ class EstimationRouteTests(unittest.TestCase):
         self.assertEqual(set(response.json()["outputs"]), {"FG1"})
         self.assertEqual(set(response.json()["outputs"]["FG1"]), {"MG1"})
 
+    def test_sssa_by_generator_endpoint_returns_generator_first_response(self):
+        response = self.client.post(
+            "/api/v1/estimate/sssa/by-generator",
+            json={"variant": "1.0.0", "state": {"x": 0.0}, "exclude_uids": []},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(set(response.json()["outputs"]), {"GenA"})
+        self.assertEqual(response.json()["outputs"]["GenA"][0]["mode_id"], 1)
+
 
 class EstimationFsaUnavailableRouteTests(unittest.TestCase):
     def setUp(self):
@@ -505,6 +656,22 @@ class EstimationFsaUnavailableRouteTests(unittest.TestCase):
                 json={"variant": "1.0.0", "state": {"x": 0.0}, "exclude_uids": []},
             )
             self.assertEqual(response.status_code, 501, path)
+
+
+class EstimationSssaUnavailableRouteTests(unittest.TestCase):
+    def setUp(self):
+        app = FastAPI()
+        app.include_router(router)
+        app.state.estimation_service = _RouteServiceWithoutSssa()
+        self.client = TestClient(app)
+
+    def test_sssa_endpoint_returns_501_when_dataset_has_no_sssa(self):
+        response = self.client.post(
+            "/api/v1/estimate/sssa/by-generator",
+            json={"variant": "1.0.0", "state": {"x": 0.0}, "exclude_uids": []},
+        )
+
+        self.assertEqual(response.status_code, 501)
 
 
 if __name__ == "__main__":

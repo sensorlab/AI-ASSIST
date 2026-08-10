@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_extra_types.semantic_version import SemanticVersion
 
-from src.domain.estimation.models import FsaReport, LocationGroupReport, Report
+from src.domain.estimation.models import FsaReport, LocationGroupReport, Report, SssaNeighbor
 from src.domain.estimation.service import EstimationService
 
 
@@ -18,11 +18,17 @@ class StateRequest(BaseModel):
     max_states: int | None = Field(
         default=None,
         gt=0,
+        le=500,
         description=(
             "Cap on the number of nearest states to retrieve from Qdrant (fewer may come "
             "back if the topology-filtered candidate pool is smaller than this). Defaults "
             "to the service's built-in limit when omitted - the response's inputs.max_states "
-            "always shows the actual value used, even when this was left unset."
+            "always shows the actual value used, even when this was left unset. Upper-bounded "
+            "at 500: SSSA's cross-state mode matching (estimate/sssa/by-generator) is roughly "
+            "quadratic in the number of retrieved SSSA rows, and eles/2026-01's ~179 modes/state "
+            "means an unbounded max_states could tie up a worker for a very long time - 500 "
+            "keeps the worst case on the same order as the already-measured eles/2026-01 "
+            "full-corpus benchmark (~90k modes, ~100s), not open-ended."
         ),
     )
 
@@ -40,6 +46,11 @@ class LocationStateResponse(BaseModel):
 class FsaStateResponse(BaseModel):
     inputs: StateRequest
     outputs: dict[str, dict[str, FsaReport]]
+
+
+class SssaStateResponse(BaseModel):
+    inputs: StateRequest
+    outputs: dict[str, list[SssaNeighbor]]
 
 
 router = APIRouter(prefix="/api/v1", tags=["estimate"])
@@ -123,6 +134,27 @@ async def estimate_fsa_by_failed_generator(req: StateRequest, request: Request) 
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     return FsaStateResponse(inputs=_resolve_max_states(req, service), outputs=outputs)
+
+
+@router.post("/estimate/sssa/by-generator", response_model=SssaStateResponse)
+async def estimate_sssa_by_generator(req: StateRequest, request: Request) -> SssaStateResponse:
+    """Small-signal stability (SSSA), grouped by generator (the only identity comparable
+    across states - mode_id is per-state local and never used as a grouping key). Raw and
+    unweighted by design: every retrieved (state, mode_id) row is returned as-is, sorted by
+    distance, pending domain input on what aggregation (if any) is wanted. Returns HTTP 501 if
+    the active dataset has no SSSA data."""
+    service: EstimationService = request.app.state.estimation_service
+    try:
+        service.ensure_columns(req.state.keys())
+        outputs = service.estimate_sssa_by_generator(
+            state=req.state, exclude_uids=req.exclude_uids, n_neighbors=req.max_states
+        )
+    except NotImplementedError as exc:
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    return SssaStateResponse(inputs=_resolve_max_states(req, service), outputs=outputs)
 
 
 @router.get("/columns")
