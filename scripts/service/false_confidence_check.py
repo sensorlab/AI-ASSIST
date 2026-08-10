@@ -39,7 +39,11 @@ from src.services.qdrant.config import get_qdrant_config
 logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
-OUTPUT_PATH: Final[Path] = PROJECT_DIR / "false_confidence_check.csv"
+# CSV summaries the paper actually consumes go to paper-sr/data/, not the repo root
+# (2026-08-05 cleanup).
+PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
+PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_PATH: Final[Path] = PAPER_DATA_DIR / "false_confidence_check.csv"
 
 N_SPLITS: Final[int] = 5
 FOLD_TO_EVALUATE: Final[int] = 0
@@ -88,7 +92,17 @@ def _evaluate(
             pred = outputs_by_crit_gen.get(crit_gen_true)
             if pred is None:
                 continue
-            stats = pred.summary.stats
+            # Report (by-generator) deliberately has no group-level stats since the
+            # 2026-07-30 rework - a blended stat across locations was misleading. Use the
+            # top-likelihood location's own stats instead, the same "pick one concrete
+            # answer" pattern already used in benchmark.py/generator_deoracled_bound.py.
+            if not pred.location_likelihood:
+                continue
+            top_location = next(iter(pred.location_likelihood))
+            location_report = pred.per_location.get(top_location)
+            if location_report is None:
+                continue
+            stats = location_report.summary.stats
             rows.append(
                 {
                     "state": state_uid,

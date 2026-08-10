@@ -206,12 +206,18 @@ class ServiceBenchmarkTests(unittest.TestCase):
         ]
 
         payload = benchmark.build_group_k_fold_payload(predictions, n_splits=2)
-        results = payload["results"].set_index("fold")
+        # build_group_k_fold_payload reports two model rows per fold - "strict" (only the true
+        # location's own coverage) and "then_global" (additionally falls back to the top-likelihood
+        # location) - see its docstring. set_index("fold") alone would leave a non-unique index
+        # (two rows per fold value), so index on (fold, model) to disambiguate.
+        results = payload["results"].set_index(["fold", "model"])
 
-        self.assertEqual(results.loc[0, "coverage"], 1.0)
-        self.assertEqual(results.loc[0, "mae"], 0.0)
-        self.assertEqual(results.loc[1, "coverage"], 0.5)
-        self.assertEqual(results.loc[1, "mae"], 0.0)
+        self.assertEqual(results.loc[(0, "service_location_then_global"), "coverage"], 1.0)
+        self.assertEqual(results.loc[(0, "service_location_then_global"), "mae"], 0.0)
+        self.assertEqual(results.loc[(1, "service_location_then_global"), "coverage"], 0.5)
+        self.assertEqual(results.loc[(1, "service_location_then_global"), "mae"], 0.0)
+        self.assertEqual(results.loc[(0, "service_location_strict"), "coverage"], 0.5)
+        self.assertEqual(results.loc[(1, "service_location_strict"), "coverage"], 0.5)
         self.assertEqual(payload["n_records"], 4)
         self.assertEqual(payload["n_groups"], 4)
 

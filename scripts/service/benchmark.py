@@ -27,6 +27,12 @@ from src.services.qdrant.config import get_qdrant_config
 logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
+# Evaluation artifacts don't belong at the repo root: raw/intermediate (.joblib, .parquet) go to
+# tmp/, CSV summaries the paper actually consumes go to paper-sr/data/ (2026-08-05 cleanup).
+TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
+PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
+PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _configured_dataset_paths() -> tuple[Path, Path]:
@@ -39,8 +45,17 @@ def _configured_dataset_paths() -> tuple[Path, Path]:
 
 
 LF_PATH, TSA_PATH = _configured_dataset_paths()
-REPORT_PATH: Final[Path] = PROJECT_DIR / "report-2026-06-19-interscada-pl.joblib"
-GROUP_K_FOLD_REPORT_PATH: Final[Path] = PROJECT_DIR / "report-service-group-kfold-interscada-pl.joblib"
+# Both paths used to be hardcoded to an "-interscada-pl" suffix regardless of DATASET_NAME - a
+# copy-paste leftover from whichever dataset this was last pointed at. That silently wrote every
+# BUS39 group-k-fold run to report-service-group-kfold-interscada-pl.joblib instead of the
+# report-service-group-kfold.joblib every downstream script (bootstrap_risk_coverage.py,
+# clearing_time_threshold_crossing.py, deployment_style_bound.py, false_confidence_check.py)
+# actually reads - a 6h45m BUS39 run went to the wrong file before this was caught (2026-08-05).
+# Fixed to be dataset-aware, but bus39 keeps the historical bare filename those scripts expect.
+_dataset_name_safe = get_qdrant_config().dataset_name.strip().lower().replace("/", "-")
+_dataset_suffix = "" if _dataset_name_safe == "bus39" else f"-{_dataset_name_safe}"
+REPORT_PATH: Final[Path] = TMP_DIR / f"report-service-leave-one-group-out{_dataset_suffix}.joblib"
+GROUP_K_FOLD_REPORT_PATH: Final[Path] = TMP_DIR / f"report-service-group-kfold{_dataset_suffix}.joblib"
 
 
 API_ENDPOINT: Final[str] = "http://localhost:8000/api/v1/estimate/tsa/by-generator"
@@ -134,7 +149,15 @@ def _process_state(
             "cct_true": row["CCT"],
             "crit_gen_true": crit_gen_true,
             "location_true": location_true,
-            "prediction_summary": pred,
+            # prediction_summary (the full nested API response - every location x generator x
+            # neighbor) used to be stored here for deployment_style_bound.py, but that script
+            # reads flat attributes (ps.location_weight_mass, ps.cct_weighted_per_location) that
+            # predate the 2026-07-30 TSA report-model rework and no longer exist on the current
+            # response schema - it's silently broken (getattr(..., None) returns None for every
+            # record) and superseded by full_deoracled_bound.py's results anyway.
+            # bootstrap_risk_coverage.py, the only other reader, already drops this column before
+            # use. Retaining ~1M full nested objects in memory across a multi-hour run is what
+            # killed this script (OOM-style SIGKILL at 91% after 6h45m, 2026-08-05) - removed.
             "cct_weighted_per_location": cct_weighted_per_location,
             "cct_weighted_global": (
                 top_location_report.summary.cct_weighted if top_location_report is not None else None
@@ -145,8 +168,20 @@ def _process_state(
             "location_neighbor_count": (location_stats.n if location_stats is not None else 0),
             "n_neighbors": location_stats.n if location_stats is not None else 0,
             "n_eff": location_stats.n_eff if location_stats is not None else None,
+            # n_eff is mechanically bounded above by n_neighbors (uniform weights give
+            # n_eff == n_neighbors exactly) - reporting n_eff alone across groups with different
+            # retrieved-pool sizes confounds "evidence concentration" with "how many candidates
+            # were even available." n_eff_fraction divides that out.
+            "n_eff_fraction": (
+                location_stats.n_eff / location_stats.n if location_stats is not None and location_stats.n > 0 else None
+            ),
             "neighborhood_compactness": (
                 location_stats.neighborhood_compactness if location_stats is not None else None
+            ),
+            "n_unique_states": (location_stats.n_unique_states if location_stats is not None else None),
+            "cct_weighted_std": (location_stats.cct_weighted_std if location_stats is not None else None),
+            "cct_distance_correlation": (
+                location_stats.cct_distance_correlation if location_stats is not None else None
             ),
             "distance_min": distances.get("min"),
             "distance_mean": distances.get("mean"),
@@ -162,7 +197,14 @@ def _process_state(
 
 
 def _run_tasks(tasks: list[Any]) -> list[dict[str, Any]]:
-    # n_jobs = min(32, max(1, joblib.cpu_count() * 4))
+    # Matches the API's --workers count - with the route handler calling EstimationService
+    # synchronously inside an async def, a single worker serializes concurrent requests behind
+    # its one event loop regardless of client-side concurrency, so client n_jobs only pays off
+    # once the server actually has that many workers to spread requests across. Dropped from 16
+    # to 8 (2026-08-06) after a memory-pressure incident running the full multi-script BUS39
+    # suite concurrently at 16 each - each server worker holds its own full EstimationService
+    # (fitted scaler + scaled lf copy + Qdrant client), so worker count directly multiplies
+    # resident memory, not just CPU.
     n_jobs = 8
     reports: list[dict[str, Any]] = []
     n_missing_crit_gen = 0
@@ -248,18 +290,36 @@ def build_group_k_fold_payload(
     if frame.empty:
         raise ValueError("Cannot summarize an empty service benchmark report")
 
+    # Two variants, reported separately rather than blended: "strict" scores only records
+    # where the true location itself was retrieved (the honest coverage/error numbers, and
+    # the ones a "fails visibly rather than silently extrapolating" claim must be based on);
+    # "then_global" additionally falls back to the single most-likely location's CCT when the
+    # true location has no coverage, kept for comparison but never as the reported headline.
     frame["cct_pred"] = frame["cct_weighted_per_location"].fillna(frame["cct_weighted_global"])
     rows: list[dict[str, float | str | int]] = []
     for fold, subset in frame.groupby("fold", sort=True):
-        valid = subset["cct_pred"].notna()
+        strict_valid = subset["cct_weighted_per_location"].notna()
+        rows.append(
+            {
+                "fold": int(fold),
+                "model": "service_location_strict",
+                **regression_metrics(
+                    subset.loc[strict_valid, "cct_true"].to_numpy(dtype=np.float64),
+                    subset.loc[strict_valid, "cct_weighted_per_location"].to_numpy(dtype=np.float64),
+                    coverage=float(strict_valid.mean()),
+                ),
+            }
+        )
+
+        fallback_valid = subset["cct_pred"].notna()
         rows.append(
             {
                 "fold": int(fold),
                 "model": "service_location_then_global",
                 **regression_metrics(
-                    subset.loc[valid, "cct_true"].to_numpy(dtype=np.float64),
-                    subset.loc[valid, "cct_pred"].to_numpy(dtype=np.float64),
-                    coverage=float(valid.mean()),
+                    subset.loc[fallback_valid, "cct_true"].to_numpy(dtype=np.float64),
+                    subset.loc[fallback_valid, "cct_pred"].to_numpy(dtype=np.float64),
+                    coverage=float(fallback_valid.mean()),
                 ),
             }
         )

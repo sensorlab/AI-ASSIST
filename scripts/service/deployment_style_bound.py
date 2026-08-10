@@ -36,8 +36,18 @@ from src.config.logging import configure_logging
 logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
-BUS39_PATH: Final[Path] = PROJECT_DIR / "report-service-group-kfold.joblib"
-OUTPUT_PATH: Final[Path] = PROJECT_DIR / "deployment_style_bound.csv"
+# Evaluation artifacts don't belong at the repo root: raw/intermediate (.joblib) go to tmp/,
+# CSV summaries the paper actually consumes go to paper-sr/data/ (2026-08-05 cleanup).
+# NOTE: this script is stale and silently broken against the current schema - see
+# paper-sr/EXPERIMENTS.md 2026-08-05 - it reads flat ps.location_weight_mass/
+# ps.cct_weighted_per_location attributes that predate the 2026-07-30 TSA report-model rework
+# and no longer exist, and it's superseded by full_deoracled_bound.py's results anyway.
+TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
+PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
+PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+BUS39_PATH: Final[Path] = TMP_DIR / "report-service-group-kfold.joblib"
+OUTPUT_PATH: Final[Path] = PAPER_DATA_DIR / "deployment_style_bound.csv"
 
 
 def _argmax_location_prediction(record: dict[str, Any]) -> float | None:
