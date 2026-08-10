@@ -1,5 +1,6 @@
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.utils.validation import validate_data
 
 
 class AngleSinCos(BaseEstimator, TransformerMixin):
@@ -9,6 +10,13 @@ class AngleSinCos(BaseEstimator, TransformerMixin):
         self.input_in_degrees = input_in_degrees
 
     def fit(self, X, y=None):
+        # Registers feature_names_in_/n_features_in_ the standard scikit-learn way (validate_data
+        # is the current public entry point; the old self._validate_data()/self._check_feature_
+        # names() instance methods no longer exist as of sklearn 1.8), so get_feature_names_out()
+        # below propagates real names through a Pipeline even when followed by another
+        # transformer (e.g. VarianceThreshold) that asks this step for input_features - without
+        # this, sklearn silently falls back to generic "x0, x1, ..." names downstream.
+        validate_data(self, X, reset=True, ensure_all_finite=False, skip_check_array=True)
         return self
 
     def transform(self, X):
