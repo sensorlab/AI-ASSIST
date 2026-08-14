@@ -34,6 +34,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from src.benchmarking import signed_wilcoxon_z
 from src.config.logging import configure_logging
 
 logger = logging.getLogger(__name__)
@@ -103,14 +104,22 @@ def main() -> None:
     )
     n_states = len(per_state)
     w_state, p_state = stats.wilcoxon(per_state["err_filter_on"], per_state["err_filter_off"], method="approx")
-    z_state = stats.wilcoxon(per_state["err_filter_on"], per_state["err_filter_off"], method="approx").zstatistic
     # z/sqrt(n) is the Wilcoxon/Rosenthal standardized effect size r, not the matched-pairs
     # rank-biserial correlation r_rb = (W_plus - W_minus)/(W_plus + W_minus) - the two are
     # numerically different statistics; this field and its label were corrected 2026-08-09
     # (Codex review, ai2ai.md) after being reported under the wrong name.
-    r_effect = z_state / np.sqrt(n_states)
+    #
+    # z comes from src.benchmarking.signed_wilcoxon_z, not scipy's .zstatistic: under a
+    # two-sided test scipy derives z from min(W+, W-), so its sign is always negative and
+    # carries no direction. Every seed here happens to point the same way, so the previously
+    # reported signs were right by coincidence rather than by construction; a seed favouring
+    # the filter would have been reported with the same negative sign as one opposing it.
+    # The difference is taken as (off - on) to match mean_paired_diff_off_minus_on below, so
+    # a negative z/r means disabling the filter lowers error - the same direction as the mean.
+    z_state, n_nonzero = signed_wilcoxon_z((per_state["err_filter_off"] - per_state["err_filter_on"]).to_numpy())
+    r_effect = z_state / np.sqrt(n_nonzero)
     logger.info(
-        f"State-level (n={n_states}): W={w_state:.1f}, p={p_state:.3e}, "
+        f"State-level (n={n_states}, {n_nonzero} nonzero): W={w_state:.1f}, p={p_state:.3e}, "
         f"z={z_state:.3f}, Wilcoxon effect size r={r_effect:.3f}"
     )
 
@@ -143,6 +152,11 @@ def main() -> None:
         {"quantity": "record_level_p_value_original", "value": p_record},
         {"quantity": "n_records", "value": len(df)},
         {"quantity": "n_states", "value": n_states},
+        # Per-arm mean absolute error on the matched set. The paired difference below is the
+        # inferential quantity, but without the levels a reader cannot judge the effect size
+        # against the error it sits on (Reviewer 2, 2026-08-14).
+        {"quantity": "mean_err_filter_on", "value": float(df["err_filter_on"].mean())},
+        {"quantity": "mean_err_filter_off", "value": float(df["err_filter_off"].mean())},
         {"quantity": "state_level_wilcoxon_W", "value": w_state},
         {"quantity": "state_level_p_value", "value": p_state},
         {"quantity": "state_level_z", "value": z_state},

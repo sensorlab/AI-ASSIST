@@ -4,6 +4,7 @@ from typing import Any, Final
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 from sklearn.metrics import mean_absolute_error, mean_squared_error, root_mean_squared_error
 from sklearn.model_selection import GroupKFold
 
@@ -185,3 +186,33 @@ def naurc(coverage_maes: dict[float, float]) -> float:
     err_full = coverage_maes[max(covs)]
     span = max(covs) - min(covs)
     return area / (err_full * span)
+
+
+def signed_wilcoxon_z(diff: np.ndarray) -> tuple[float, int]:
+    """Normal-approximation z for a paired Wilcoxon signed-rank test, signed by direction.
+
+    Returns ``(z, n_nonzero)``. Zero differences are dropped, matching scipy's default
+    ``zero_method="wilcox"``. The magnitude matches ``scipy.stats.wilcoxon(...,
+    method="approx").zstatistic``, but the sign is meaningful: ``z > 0`` when the positive
+    differences dominate, i.e. when the first term of ``diff`` tends to exceed the second.
+
+    Use this rather than scipy's ``.zstatistic`` whenever the sign is reported or a
+    standardized effect size ``r = z / sqrt(n)`` is derived from it. Under a two-sided test
+    scipy builds its z from ``min(W+, W-)``, so ``.zstatistic`` is always negative regardless
+    of which arm is larger. That is harmless when every compared arm points the same way, and
+    silently wrong as soon as one does not: two comparisons with opposite true directions both
+    come back negative.
+    """
+    nonzero = diff[diff != 0]
+    n = len(nonzero)
+    if n == 0:
+        return float("nan"), 0
+    abs_diff = np.abs(nonzero)
+    ranks = stats.rankdata(abs_diff)
+    w_plus = float(ranks[nonzero > 0].sum())
+    mean_w = n * (n + 1) / 4
+    _, tie_counts = np.unique(abs_diff, return_counts=True)
+    # Standard tie correction on the variance, matching scipy's approximate branch.
+    tie_correction = (tie_counts**3 - tie_counts).sum() / 2
+    var_w = (n * (n + 1) * (2 * n + 1) - tie_correction) / 24
+    return float((w_plus - mean_w) / np.sqrt(var_w)), n
