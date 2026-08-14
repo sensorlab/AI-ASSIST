@@ -17,6 +17,19 @@ eles_deoracled_bound.py.
 Run from the repository root, e.g.:
     DATASET_NAME=eles/2026-06 TOPOLOGY_VARIANT=lines_only QDRANT_URL=":memory:" \\
         uv run python scripts/service/eles_generator_diagnostics_selected.py [limit] [n_jobs]
+
+For the matched five-fold comparison, add:
+    ELES_BENCHMARK_SPLIT=group-k-fold
+The grouped-fold artifact receives a `_group_kfold` filename suffix.
+
+ELES_TEMPORAL_EXCLUSION_HOURS=H additionally excludes every state whose acquisition timestamp
+is within H hours of the query's, not just the query itself. ELES's same-topology groups are
+largely contiguous hourly bursts spanning one to three days, so leave-one-state-out leaves a
+query's immediate temporal neighbours in the reference library and retrieval can return
+essentially the same operating state an hour earlier. This option measures how much of the
+reported accuracy depends on that near-duplicate recall. It applies to leave-one-group-out
+only, since group-k-fold already removes a whole fold, and the artifact receives an
+`_excl{H}h` filename suffix so a control run cannot overwrite the baseline.
 """
 
 from __future__ import annotations
@@ -34,6 +47,11 @@ import joblib  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from _common import load_eles_state_timestamps  # noqa: E402
+
+from src.benchmarking import group_k_fold_test_groups  # noqa: E402
 from src.config.logging import configure_logging  # noqa: E402
 from src.config.settings import get_app_settings  # noqa: E402
 from src.domain.estimation.service import _dataset_paths, build_estimation_service  # noqa: E402
@@ -44,6 +62,9 @@ logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
+# Raw archive is the only persistent location for ELES state timestamps, needed by the
+# optional temporal-exclusion control (ELES_TEMPORAL_EXCLUSION_HOURS).
+RAW_ZIP: Final[Path] = PROJECT_DIR / "datasets" / "eles" / "2026-06" / "raw" / "Podatki_DSA.zip"
 PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -55,21 +76,26 @@ def _norm(value: Any) -> str:
     return str(value).strip().lower()
 
 
-WorkItem = tuple[str, dict[str, Any], pd.DataFrame]
+WorkItem = tuple[int | None, str, dict[str, Any], pd.DataFrame, list[str]]
 
 
 def _process_chunk(items: list[WorkItem]) -> list[dict[str, Any]]:
     service = build_estimation_service()
     rows: list[dict[str, Any]] = []
 
-    for uid, state, tsa_subset in items:
-        by_loc = service.estimate_by_location(state=state, exclude_uids=[uid], alpha=ALPHA)
+    for fold, uid, state, tsa_subset, excluded_uids in items:
+        by_loc = service.estimate_by_location(state=state, exclude_uids=excluded_uids, alpha=ALPHA)
+        excluded_norm = {_norm(excluded) for excluded in excluded_uids}
 
         per_location_reports: dict[str, dict[str, Any]] = {}
         for loc_key, loc_group in by_loc.items():
             loc_norm = _norm(loc_key)
             per_location_reports[loc_norm] = {}
             for gen_key, report in loc_group.per_crit_gen.items():
+                leaked = excluded_norm & {_norm(included) for included in report.included_state_ids}
+                if leaked:
+                    raise RuntimeError(f"Data leakage: excluded states returned by retrieval: {sorted(leaked)}")
+
                 est = getattr(report.summary, "cct_weighted", None)
                 if est is None:
                     continue
@@ -77,11 +103,19 @@ def _process_chunk(items: list[WorkItem]) -> list[dict[str, Any]]:
                 mass = service._raw_kernel_mass(report.per_neighbor, alpha=ALPHA)
                 per_location_reports[loc_norm][gen_norm] = (mass, report)
 
-        for _, rec in tsa_subset.iterrows():
+        for record_ordinal, (_, rec) in enumerate(tsa_subset.iterrows()):
             loc_true = _norm(rec["Location"])
             gen_true = _norm(rec["Crit_gen"])
             cct_true = float(rec["CCT"])
-            row: dict[str, Any] = {"state": uid, "cct_true": cct_true, "loc_true": loc_true, "covered": False}
+            row: dict[str, Any] = {
+                "state": uid,
+                "record_ordinal": record_ordinal,
+                "cct_true": cct_true,
+                "loc_true": loc_true,
+                "covered": False,
+            }
+            if fold is not None:
+                row["fold"] = fold
 
             loc_reports = per_location_reports.get(loc_true)
             if not loc_reports:
@@ -124,26 +158,79 @@ def main() -> None:
     configure_logging()
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else 0
     n_jobs = int(sys.argv[2]) if len(sys.argv) > 2 else 8
+    split = os.environ.get("ELES_BENCHMARK_SPLIT", "leave-one-group-out")
+    if split not in {"leave-one-group-out", "group-k-fold"}:
+        raise ValueError(f"Unsupported ELES_BENCHMARK_SPLIT: {split!r}")
 
     config = get_qdrant_config()
     app_settings = get_app_settings()
     lf_path, tsa_path, _ = _dataset_paths(
         app_settings.data_dir, config.dataset_name, topology_variant=config.topology_variant
     )
-    logger.info(f"Dataset: lf={lf_path}, tsa={tsa_path}, topology_variant={config.topology_variant!r}")
+    logger.info(f"Dataset: lf={lf_path}, tsa={tsa_path}, topology_variant={config.topology_variant!r}, split={split}")
+
+    exclusion_hours = float(os.environ.get("ELES_TEMPORAL_EXCLUSION_HOURS", "0") or 0)
+    if exclusion_hours < 0:
+        raise ValueError("ELES_TEMPORAL_EXCLUSION_HOURS must be non-negative.")
+    if exclusion_hours and split == "group-k-fold":
+        raise ValueError(
+            "ELES_TEMPORAL_EXCLUSION_HOURS applies to leave-one-group-out only; "
+            "group-k-fold already excludes the query's whole fold."
+        )
 
     safe_dataset = config.dataset_name.replace("/", "-")
-    out_records = TMP_DIR / f"eles_generator_diagnostics_selected_{safe_dataset}_{config.topology_variant}.parquet"
+    split_suffix = "_group_kfold" if split == "group-k-fold" else ""
+    excl_suffix = f"_excl{exclusion_hours:g}h" if exclusion_hours else ""
+    out_records = (
+        TMP_DIR / f"eles_generator_diagnostics_selected_{safe_dataset}_"
+        f"{config.topology_variant}{split_suffix}{excl_suffix}.parquet"
+    )
 
     lf = pd.read_pickle(lf_path)
     tsa_store = SqliteRecordStore(tsa_path, table="tsa")
     tsa = tsa_store.fetch(list(lf.index.astype(str)))
     tsa_by_state = {str(state_id): subset.copy() for state_id, subset in tsa.groupby("state", observed=True)}
+    fold_exclusions: dict[int, list[str]] = {}
+    state_to_fold: dict[str, int] = {}
+    if split == "group-k-fold":
+        folds = group_k_fold_test_groups(tsa["state"], n_splits=5)
+        fold_exclusions = {fold: sorted(excluded) for fold, excluded in enumerate(folds)}
+        state_to_fold = {uid: fold for fold, excluded in enumerate(folds) for uid in excluded}
+
+    temporal_exclusions: dict[str, list[str]] = {}
+    if exclusion_hours:
+        timestamps = load_eles_state_timestamps(RAW_ZIP)
+        known = timestamps.reindex([str(i) for i in lf.index])
+        if known.isna().any():
+            missing = int(known.isna().sum())
+            raise ValueError(f"{missing} of {len(known)} states have no timestamp in {RAW_ZIP}")
+        order = known.sort_values()
+        times = order.to_numpy()
+        uids = order.index.to_numpy()
+        window = np.timedelta64(int(exclusion_hours * 3600), "s")
+        # Both bounds are inclusive: a neighbour exactly H hours away is excluded, so H=0 would
+        # still exclude the query itself and any exact-timestamp duplicate.
+        lo = np.searchsorted(times, times - window, side="left")
+        hi = np.searchsorted(times, times + window, side="right")
+        temporal_exclusions = {uid: list(uids[lo[i] : hi[i]]) for i, uid in enumerate(uids)}
+        sizes = np.array([hi[i] - lo[i] for i in range(len(uids))])
+        logger.info(
+            f"Temporal exclusion +/-{exclusion_hours:g} h: excluding a median of "
+            f"{np.median(sizes):.0f} states per query (min {sizes.min()}, max {sizes.max()}), "
+            f"against 1 under plain leave-one-state-out"
+        )
 
     work: list[WorkItem] = []
     n_taken = 0
     for state_id, state_row in lf.iterrows():
         uid = str(state_id)
+        fold = state_to_fold.get(uid)
+        if split == "group-k-fold" and fold is None:
+            continue
+        if fold is None:
+            excluded_uids = temporal_exclusions.get(uid, [uid]) if exclusion_hours else [uid]
+        else:
+            excluded_uids = fold_exclusions[fold]
         tsa_subset = tsa_by_state.get(uid)
         if tsa_subset is None or tsa_subset.empty:
             continue
@@ -151,7 +238,7 @@ def main() -> None:
             break
         n_taken += 1
         state = {k: (None if pd.isna(v) else v) for k, v in state_row.items()}
-        work.append((uid, state, tsa_subset))
+        work.append((fold, uid, state, tsa_subset, excluded_uids))
 
     n_states = len(work)
     logger.info(f"{n_states} states queued across {n_jobs} worker processes")
