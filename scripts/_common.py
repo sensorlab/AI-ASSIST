@@ -2,10 +2,12 @@
 
 import json
 import logging
+import re
 import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import zipfile
 from collections.abc import Iterable
 from pathlib import Path
@@ -15,6 +17,38 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+_ELES_DATE_FILE_RE = re.compile(r"Date_main_(?P<idx>\d+)\.csv")
+
+
+def load_eles_state_timestamps(zip_path: Path) -> pd.Series:
+    """Map each ELES state id to its acquisition timestamp, read from the raw DSA archive.
+
+    Uses the same {batch}_{row} state-id construction as
+    datasets/eles/*/transform.py::_load_sssa_state_mapping(), inverted (state -> timestamp).
+    Only the Dates/ members are extracted, into a TemporaryDirectory that is removed on exit
+    regardless of success, so no copy of the operational timestamps is left on disk.
+
+    The raw ZIP is the only persistent location for these timestamps - they are deliberately
+    not carried into interim/ or processed/ - so any analysis needing state chronology reads
+    them through here rather than re-implementing the join.
+    """
+    rows: list[tuple[str, str]] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_dir = Path(tmp)
+        with zipfile.ZipFile(zip_path) as zf:
+            members = [m for m in zf.namelist() if "/Dates/" in m or m.startswith("Dates/")]
+            zf.extractall(tmp_dir, members=members)
+        for path in sorted(tmp_dir.glob("**/Date_main_*.csv")):
+            match = _ELES_DATE_FILE_RE.match(path.name)
+            if not match:
+                continue
+            batch = int(match["idx"])
+            dates = pd.read_csv(path, sep=";", index_col=0)
+            for row, timestamp in dates["DateTime"].items():
+                rows.append((f"{batch}_{row}", timestamp))
+    state_ts = pd.DataFrame(rows, columns=["state", "timestamp"]).set_index("state")
+    return pd.to_datetime(state_ts["timestamp"], format="%Y%m%d_%H%M")
 
 
 def run_script(script: Path, *args: str) -> None:
