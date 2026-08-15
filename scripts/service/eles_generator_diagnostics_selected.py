@@ -170,6 +170,7 @@ def main() -> None:
     logger.info(f"Dataset: lf={lf_path}, tsa={tsa_path}, topology_variant={config.topology_variant!r}, split={split}")
 
     exclusion_hours = float(os.environ.get("ELES_TEMPORAL_EXCLUSION_HOURS", "0") or 0)
+    causal_lag = os.environ.get("ELES_CAUSAL_LAG_HOURS")
     if exclusion_hours < 0:
         raise ValueError("ELES_TEMPORAL_EXCLUSION_HOURS must be non-negative.")
     if exclusion_hours and split == "group-k-fold":
@@ -181,6 +182,8 @@ def main() -> None:
     safe_dataset = config.dataset_name.replace("/", "-")
     split_suffix = "_group_kfold" if split == "group-k-fold" else ""
     excl_suffix = f"_excl{exclusion_hours:g}h" if exclusion_hours else ""
+    if causal_lag is not None:
+        excl_suffix = f"_causal{float(causal_lag):g}h"
     out_records = (
         TMP_DIR / f"eles_generator_diagnostics_selected_{safe_dataset}_"
         f"{config.topology_variant}{split_suffix}{excl_suffix}.parquet"
@@ -197,8 +200,46 @@ def main() -> None:
         fold_exclusions = {fold: sorted(excluded) for fold, excluded in enumerate(folds)}
         state_to_fold = {uid: fold for fold, excluded in enumerate(folds) for uid in excluded}
 
+    if causal_lag is not None and exclusion_hours:
+        raise ValueError("ELES_CAUSAL_LAG_HOURS and ELES_TEMPORAL_EXCLUSION_HOURS are alternatives, not a combination.")
+
     temporal_exclusions: dict[str, list[str]] = {}
-    if exclusion_hours:
+    if causal_lag is not None:
+        # One-sided: withhold every state whose outcomes a deployment could not yet hold at
+        # query time, and nothing else. A state recorded earlier is legitimate reference data
+        # once its contingencies have been simulated, so the symmetric sweep - which also
+        # removes those - measures robustness to a hole in the archive rather than deployment.
+        # The lag is the delay between a state being recorded and its outcomes being usable.
+        lag_hours = float(causal_lag)
+        if lag_hours < 0:
+            raise ValueError("ELES_CAUSAL_LAG_HOURS must be non-negative.")
+        timestamps = load_eles_state_timestamps(RAW_ZIP)
+        known = timestamps.reindex([str(i) for i in lf.index])
+        if known.isna().any():
+            raise ValueError(f"{int(known.isna().sum())} of {len(known)} states have no timestamp in {RAW_ZIP}")
+        order = known.sort_values()
+        times = order.to_numpy()
+        uids = order.index.to_numpy()
+        lag = np.timedelta64(int(lag_hours * 3600), "s")
+        # Usable for a query at time q: recorded at or before q - lag. Everything later is
+        # withheld, the query itself included.
+        # Usable for a query at time q: recorded at or before q - lag, and never the query
+        # itself. side="right" keeps a state exactly `lag` old usable, but at lag 0 it would
+        # also keep the query, which would let it retrieve itself.
+        cutoff = np.searchsorted(times, times - lag, side="right")
+        temporal_exclusions = {}
+        for i, uid in enumerate(uids):
+            withheld = list(uids[cutoff[i] :])
+            if uid not in withheld:
+                withheld.append(uid)
+            temporal_exclusions[uid] = withheld
+        available = np.array([cutoff[i] - (1 if i < cutoff[i] else 0) for i in range(len(uids))])
+        logger.info(
+            f"Causal evaluation, ingestion lag {lag_hours:g} h: a query may use only states recorded at or before "
+            f"its own timestamp minus the lag. Median states available {np.median(available):.0f} "
+            f"(min {available.min()}, max {available.max()}) of {len(uids)}"
+        )
+    elif exclusion_hours:
         timestamps = load_eles_state_timestamps(RAW_ZIP)
         known = timestamps.reindex([str(i) for i in lf.index])
         if known.isna().any():
@@ -228,7 +269,8 @@ def main() -> None:
         if split == "group-k-fold" and fold is None:
             continue
         if fold is None:
-            excluded_uids = temporal_exclusions.get(uid, [uid]) if exclusion_hours else [uid]
+            use_temporal = exclusion_hours or causal_lag is not None
+            excluded_uids = temporal_exclusions.get(uid, [uid]) if use_temporal else [uid]
         else:
             excluded_uids = fold_exclusions[fold]
         tsa_subset = tsa_by_state.get(uid)
