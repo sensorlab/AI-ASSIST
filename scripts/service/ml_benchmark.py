@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Any, Final
 
@@ -24,6 +25,10 @@ from sklearn.feature_selection import VarianceThreshold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 from tqdm.auto import tqdm
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from _common import load_eles_state_timestamps  # noqa: E402
 
 from src.benchmarking import (
     CONTINGENCY_CATEGORICAL_COLUMNS,
@@ -71,6 +76,7 @@ def build_record_table(
     tsa: pd.DataFrame,
     *,
     scaler: Any,
+    contingency_cols: tuple[str, ...] = CONTINGENCY_CATEGORICAL_COLUMNS,
 ) -> tuple[pd.DataFrame, pd.Series, pd.Series]:
     """
     Build a supervised regression table.
@@ -95,6 +101,7 @@ def build_record_table(
         lf_scaled = pd.DataFrame(lf_scaled, index=lf.index)
 
     lf_scaled = lf_scaled.copy()
+    state_feature_cols = list(lf_scaled.columns)
     # Clear the index name before adding a same-named "state" column: on datasets whose lf.pkl
     # index is itself named "state" (e.g. ELES), leaving the name in place makes pandas' merge()
     # below raise "'state' is both an index level and a column label, which is ambiguous."
@@ -119,29 +126,18 @@ def build_record_table(
     y = records["CCT"].astype(float)
     groups = records["state"]
 
-    # Keep only contingency descriptors that are available in the TSA table.
-    categorical_cols = [c for c in CONTINGENCY_CATEGORICAL_COLUMNS if c in records.columns]
-
-    # Exclude outcomes and identifiers.
-    excluded_cols = {
-        "CCT",
-        "experiment",  # wide-to-long ordinal, not an inference input
-        "target",
-        "state",
-    }
-
-    numeric_cols = [
-        c
-        for c in records.columns
-        if c not in excluded_cols and c not in categorical_cols and pd.api.types.is_numeric_dtype(records[c])
-    ]
-
+    # Keep only explicitly requested contingency descriptors. Numerical TSA columns that are not
+    # listed here must not slip into the feature matrix merely because they have a numeric dtype.
+    categorical_cols = [c for c in contingency_cols if c in records.columns]
+    numeric_cols = [c for c in state_feature_cols if c in records.columns and pd.api.types.is_numeric_dtype(records[c])]
     X = records[numeric_cols + categorical_cols].copy()
 
     return X, y, groups
 
 
-def make_models(categorical_cols: list[str], *, max_features: float | str = 1.0) -> dict[str, Pipeline]:
+def make_models(
+    categorical_cols: list[str], *, max_features: float | str = 1.0, n_jobs: int = 8
+) -> dict[str, Pipeline]:
     # max_features defaults to 1.0 (every feature considered at every split), matching
     # RandomForestRegressor/ExtraTreesRegressor's own sklearn default -- unlike the classifier
     # variants, which default to "sqrt". That default is tractable on BUS39's 260 scaled
@@ -184,7 +180,7 @@ def make_models(categorical_cols: list[str], *, max_features: float | str = 1.0)
                         n_estimators=300,
                         min_samples_leaf=2,
                         max_features=max_features,
-                        n_jobs=8,  # capped, not -1: avoids starving other concurrent benchmark jobs of CPU/memory
+                        n_jobs=n_jobs,
                         random_state=42,
                     ),
                 ),
@@ -200,7 +196,7 @@ def make_models(categorical_cols: list[str], *, max_features: float | str = 1.0)
                         n_estimators=300,
                         min_samples_leaf=2,
                         max_features=max_features,
-                        n_jobs=8,  # capped, not -1: avoids starving other concurrent benchmark jobs of CPU/memory
+                        n_jobs=n_jobs,
                         random_state=42,
                     ),
                 ),
@@ -242,6 +238,32 @@ def location_median_baseline(
     return X_test[location_col].astype(str).map(medians).fillna(global_median).to_numpy(dtype=float)
 
 
+def _temporally_blocked_train_idx(
+    train_idx: np.ndarray,
+    test_idx: np.ndarray,
+    groups: pd.Series,
+    state_times: pd.Series,
+    window: pd.Timedelta,
+) -> np.ndarray:
+    """Drop training records whose state lies within `window` of any test-fold state.
+
+    GroupKFold holds out whole states, but a state recorded an hour before a test state is a
+    different state and therefore lands in training. On an hourly archive every test state has
+    a training neighbour minutes away, so a supervised model is fitted on near-duplicates of
+    the states it is scored on. That is the same advantage the retrieval arm loses under
+    ELES_TEMPORAL_EXCLUSION_HOURS, so comparing the two without this is not like for like.
+    """
+    test_states = pd.unique(groups.iloc[test_idx])
+    test_t = np.sort(state_times.reindex(test_states).to_numpy())
+    train_states = groups.iloc[train_idx].to_numpy()
+    train_t = state_times.reindex(pd.unique(train_states)).to_numpy()
+    lo = np.searchsorted(test_t, train_t - window, side="left")
+    hi = np.searchsorted(test_t, train_t + window, side="right")
+    blocked = set(pd.unique(train_states)[lo < hi])
+    keep = np.array([s not in blocked for s in train_states], dtype=bool)
+    return train_idx[keep]
+
+
 def run_group_cv(
     X: pd.DataFrame,
     y: pd.Series,
@@ -249,10 +271,13 @@ def run_group_cv(
     *,
     n_splits: int = 5,
     max_features: float | str = 1.0,
+    n_jobs: int = 8,
     model_names: set[str] | None = None,
-) -> pd.DataFrame:
+    state_times: pd.Series | None = None,
+    exclusion_window: pd.Timedelta | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     categorical_cols = [c for c in CONTINGENCY_CATEGORICAL_COLUMNS if c in X.columns]
-    models = make_models(categorical_cols, max_features=max_features)
+    models = make_models(categorical_cols, max_features=max_features, n_jobs=n_jobs)
     if model_names is not None:
         # Each model's Pipeline independently re-fits the (shared, but per-Pipeline-refitted)
         # ColumnTransformer preprocessing step, so every extra model in this dict multiplies
@@ -264,15 +289,33 @@ def run_group_cv(
         models = {name: pipeline for name, pipeline in models.items() if name in model_names}
 
     rows: list[dict[str, float | str | int]] = []
+    prediction_frames: list[pd.DataFrame] = []
+    record_ordinals = groups.groupby(groups, sort=False).cumcount()
     iterator = group_k_fold_indices(groups, n_splits=n_splits)
 
     for fold, (train_idx, test_idx) in enumerate(tqdm(iterator, total=n_splits, desc="GroupKFold regression")):
+        if state_times is not None and exclusion_window is not None:
+            before = len(train_idx)
+            train_idx = _temporally_blocked_train_idx(train_idx, test_idx, groups, state_times, exclusion_window)
+            logger.info(
+                f"fold {fold}: temporal blocking kept {len(train_idx):,} of {before:,} training records "
+                f"({100 * len(train_idx) / before:.1f}%)"
+            )
         X_train = X.iloc[train_idx]
         X_test = X.iloc[test_idx]
         y_train = y.iloc[train_idx]
         y_test = y.iloc[test_idx]
 
         y_test_np = y_test.to_numpy(dtype=float)
+        prediction_base = pd.DataFrame(
+            {
+                "record_position": test_idx,
+                "state": groups.iloc[test_idx].astype(str).to_numpy(),
+                "record_ordinal": record_ordinals.iloc[test_idx].to_numpy(dtype=int),
+                "fold": fold,
+                "cct_true": y_test_np,
+            }
+        )
 
         # Simple contingency-aware baseline.
         y_pred = location_median_baseline(X_train, y_train, X_test)
@@ -283,6 +326,7 @@ def run_group_cv(
                 **regression_metrics(y_test_np, y_pred),
             }
         )
+        prediction_frames.append(prediction_base.assign(model="location_median", cct_pred=y_pred))
 
         for name, model in models.items():
             model.fit(X_train, y_train)
@@ -295,8 +339,10 @@ def run_group_cv(
                     **regression_metrics(y_test_np, pred),
                 }
             )
+            prediction_frames.append(prediction_base.assign(model=name, cct_pred=pred))
 
-    return pd.DataFrame(rows)
+    predictions = pd.concat(prediction_frames, ignore_index=True)
+    return pd.DataFrame(rows), predictions
 
 
 def main() -> None:
@@ -309,10 +355,18 @@ def main() -> None:
     lf = pd.read_pickle(lf_path)
     with sqlite3.connect(tsa_path) as conn:
         tsa = pd.read_sql_query("SELECT * FROM tsa", conn)
+    contingency_env = os.environ.get("ML_BENCHMARK_CONTINGENCY_COLUMNS", ",".join(CONTINGENCY_CATEGORICAL_COLUMNS))
+    contingency_cols = tuple(col.strip() for col in contingency_env.split(",") if col.strip())
+    unsupported_cols = set(contingency_cols) - set(CONTINGENCY_CATEGORICAL_COLUMNS)
+    if unsupported_cols:
+        raise ValueError(f"Unsupported contingency input columns: {sorted(unsupported_cols)}")
+    if not contingency_cols:
+        raise ValueError("At least one contingency input column is required.")
+    logger.info(f"Contingency input columns: {contingency_cols}")
 
     scaler = _make_scaler_for_dataset(dataset)
 
-    X, y, groups = build_record_table(lf, tsa, scaler=scaler)
+    X, y, groups = build_record_table(lf, tsa, scaler=scaler, contingency_cols=contingency_cols)
 
     logger.info(
         f"Records: {len(X):,}; States/groups: {groups.nunique():,}; Features: {X.shape[1]:,}; "
@@ -324,14 +378,47 @@ def main() -> None:
         max_features: float | str = float(max_features_env)
     except ValueError:
         max_features = max_features_env
-    logger.info(f"RandomForest/ExtraTrees max_features={max_features!r}")
+    logger.info(f"Tree-model max_features={max_features!r}")
+    n_jobs = int(os.environ.get("ML_BENCHMARK_N_JOBS", "8"))
+    if n_jobs == 0 or n_jobs < -1:
+        raise ValueError("ML_BENCHMARK_N_JOBS must be -1 or a positive integer.")
+    logger.info(f"Tree-model n_jobs={n_jobs}")
 
     models_env = os.environ.get("ML_BENCHMARK_MODELS")
     model_names = {name.strip() for name in models_env.split(",")} if models_env else None
     if model_names is not None:
         logger.info(f"Restricting to models: {sorted(model_names)}")
 
-    results = run_group_cv(X, y, groups, n_splits=5, max_features=max_features, model_names=model_names)
+    # Temporally blocked CV: also withhold training states within H hours of any test state.
+    # Without it a supervised model keeps the near-duplicates the retrieval arm loses under
+    # ELES_TEMPORAL_EXCLUSION_HOURS, and the two are not comparable.
+    excl_hours = float(os.environ.get("ML_BENCHMARK_TEMPORAL_EXCLUSION_HOURS", "0") or 0)
+    state_times = exclusion_window = None
+    if excl_hours:
+        if not dataset.startswith("eles/"):
+            raise ValueError("temporal blocking needs state timestamps, available only for the eles datasets")
+        data_dir = get_app_settings().data_dir
+        if not data_dir.is_absolute():
+            data_dir = PROJECT_DIR / data_dir
+        raw_zip = data_dir / dataset / "raw" / "Podatki_DSA.zip"
+        state_times = load_eles_state_timestamps(raw_zip)
+        missing = int(state_times.reindex(groups.unique()).isna().sum())
+        if missing:
+            raise ValueError(f"{missing} states have no timestamp in {raw_zip}")
+        exclusion_window = pd.Timedelta(hours=excl_hours)
+        logger.info(f"Temporal blocking of training folds: +/-{excl_hours:g} h")
+
+    results, predictions = run_group_cv(
+        X,
+        y,
+        groups,
+        n_splits=5,
+        max_features=max_features,
+        n_jobs=n_jobs,
+        model_names=model_names,
+        state_times=state_times,
+        exclusion_window=exclusion_window,
+    )
     summary = summarize_results(results)
 
     print("\nPer-fold results:")
@@ -349,20 +436,24 @@ def main() -> None:
         "target": "CCT",
         "split": "GroupKFold by pre-fault state",
         "max_features": max_features,
+        "n_jobs": n_jobs,
+        "contingency_columns": list(contingency_cols),
+        "temporal_exclusion_hours": excl_hours,
     }
 
-    report_path = TMP_DIR / f"report-ml-regression-{dataset_slug}.joblib"
+    excl_suffix = f"_tblock{excl_hours:g}h" if excl_hours else ""
+    report_path = TMP_DIR / f"report-ml-regression-{dataset_slug}{excl_suffix}.joblib"
     joblib.dump(payload, report_path)
     logger.info(f"Saved report to {report_path}")
+    prediction_path = TMP_DIR / f"ml_benchmark_predictions-{dataset_slug}{excl_suffix}.parquet"
+    predictions.to_parquet(prediction_path, index=False)
+    logger.info(f"Saved record-level predictions to {prediction_path}")
 
-    # Flat, paper-consumable CSV: one row per model, GroupKFold-by-state MAE/RMSE etc., with
-    # pre-fault state features plus Location/Terminal/Type supplied as input columns -
-    # Crit_gen is deliberately excluded above (it's a simulation outcome, not a pre-fault
-    # input; see build_record_table and tests/test_service_benchmark.py's assertion of this).
-    # This is the source for the paper's ExtraTrees-vs-retrieval comparison (Results,
-    # De-oracling), compared there against retrieval's non-oracle, highest-support-generator
-    # row - not its oracle row, since this model never receives the critical generator either
-    # (corrected 2026-08-09, journal.tex:112 previously claimed otherwise).
+    # Flat paper artifact: grouped-fold metrics under the explicit contingency-input profile.
+    # The recorded critical generator is always excluded because it is a simulation outcome.
+    # A matched paper comparison uses the record-level artifact above to restrict ExtraTrees
+    # and retrieval's highest-support candidate to their common covered population.
+    # The aggregate CSV remains useful for checking full-coverage supervised performance.
     flat_summary = summary.copy()
     flat_summary.columns = ["_".join(str(part) for part in col if part) for col in flat_summary.columns]
     flat_summary = flat_summary.reset_index()
@@ -370,7 +461,9 @@ def main() -> None:
     flat_summary.insert(1, "n_records", len(X))
     flat_summary.insert(2, "n_groups", int(groups.nunique()))
     flat_summary.insert(3, "max_features", str(max_features))
-    csv_path = PAPER_DATA_DIR / f"ml_benchmark_summary-{dataset_slug}.csv"
+    flat_summary.insert(4, "n_jobs", n_jobs)
+    flat_summary.insert(5, "contingency_columns", ",".join(contingency_cols))
+    csv_path = PAPER_DATA_DIR / f"ml_benchmark_summary-{dataset_slug}{excl_suffix}.csv"
     flat_summary.to_csv(csv_path, index=False)
     logger.info(f"Saved summary CSV to {csv_path}")
 
