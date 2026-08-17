@@ -441,8 +441,31 @@ def main() -> None:
         "temporal_exclusion_hours": excl_hours,
     }
 
-    excl_suffix = f"_tblock{excl_hours:g}h" if excl_hours else ""
+    # The feature budget is part of an artifact's identity, not just of its contents: a run at
+    # sqrt(p) and one at every feature are different comparators, and paper-sr's Table 2 keys its
+    # rows by model@budget so both can appear at once. Without the budget in the filename the
+    # second run silently overwrites the first. The historical default (1.0) keeps the bare name
+    # so the already-published BUS39 artifacts stay discoverable; consumers glob the prefix and
+    # take each run's identity from the max_features field in its own payload, so a mixed naming
+    # scheme on disk resolves correctly. ELES's pre-existing sqrt artifacts predate this and
+    # likewise keep their bare names.
+    mf_suffix = "" if str(max_features) == "1.0" else f"_mf{max_features}"
+    # ML_BENCHMARK_RUN_TAG distinguishes runs that the other suffixes cannot. A run restricted to
+    # one model writes the same filenames as a run of every model at the same budget, so adding a
+    # comparator to an existing table silently destroys the artifact it was meant to extend --
+    # a gradient-boosting-only BUS39 run at the default budget would have overwritten the
+    # extra-trees artifact Table 2 depends on. Pass a tag whenever ML_BENCHMARK_MODELS is set.
+    run_tag = os.environ.get("ML_BENCHMARK_RUN_TAG", "").strip()
+    if run_tag and not run_tag.replace("-", "").replace("_", "").isalnum():
+        raise ValueError(f"ML_BENCHMARK_RUN_TAG must be alphanumeric with - or _, got {run_tag!r}")
+    tag_suffix = f"_{run_tag}" if run_tag else ""
+    excl_suffix = f"{mf_suffix}{f'_tblock{excl_hours:g}h' if excl_hours else ''}{tag_suffix}"
     report_path = TMP_DIR / f"report-ml-regression-{dataset_slug}{excl_suffix}.joblib"
+    if report_path.exists():
+        previous = sorted(joblib.load(report_path)["results"]["model"].unique())
+        logger.warning(
+            f"Overwriting {report_path.name}, which holds {previous}. Set ML_BENCHMARK_RUN_TAG to keep both."
+        )
     joblib.dump(payload, report_path)
     logger.info(f"Saved report to {report_path}")
     prediction_path = TMP_DIR / f"ml_benchmark_predictions-{dataset_slug}{excl_suffix}.parquet"
