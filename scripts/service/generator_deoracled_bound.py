@@ -60,8 +60,18 @@ TMP_DIR.mkdir(parents=True, exist_ok=True)
 PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 LF_PATH: Final[Path] = PROJECT_DIR / "datasets/bus39/interim/lf.pkl"
 TSA_PATH: Final[Path] = PROJECT_DIR / "datasets/bus39/interim/tsa.pkl"
-OUT_CSV: Final[Path] = PAPER_DATA_DIR / "generator_deoracled_bound.csv"
-OUT_RECORDS: Final[Path] = TMP_DIR / "generator_deoracled_records.parquet"
+# BUS39_BENCHMARK_SPLIT mirrors ELES_BENCHMARK_SPLIT in eles_generator_diagnostics_selected.py,
+# so both datasets can be evaluated under the same protocol. "group-k-fold" withholds the query's
+# whole fold; "leave-one-state-out" withholds only the query state, which is the protocol the
+# paper reports for ELES. Leaving BUS39 on folds while ELES ran leave-one-state-out meant the two
+# headline accuracies were not measured the same way. Artifacts take a suffix so a run under one
+# protocol cannot overwrite the other.
+SPLIT: Final[str] = os.environ.get("BUS39_BENCHMARK_SPLIT", "group-k-fold")
+if SPLIT not in {"group-k-fold", "leave-one-state-out"}:
+    raise ValueError(f"BUS39_BENCHMARK_SPLIT must be group-k-fold or leave-one-state-out, got {SPLIT!r}")
+_SUFFIX: Final[str] = "" if SPLIT == "group-k-fold" else "_loso"
+OUT_CSV: Final[Path] = PAPER_DATA_DIR / f"generator_deoracled_bound{_SUFFIX}.csv"
+OUT_RECORDS: Final[Path] = TMP_DIR / f"generator_deoracled_records{_SUFFIX}.parquet"
 ALPHA: Final[float] = 1.0
 N_SPLITS: Final[int] = 5
 
@@ -140,27 +150,42 @@ def main() -> None:
     tsa: pd.DataFrame = pd.read_pickle(TSA_PATH)
     tsa_by_state = {str(s): sub for s, sub in tsa.groupby("state", observed=True)}
 
-    folds = group_k_fold_test_groups(tsa["state"], n_splits=N_SPLITS)
+    if SPLIT == "group-k-fold":
+        folds = group_k_fold_test_groups(tsa["state"], n_splits=N_SPLITS)
+    else:
+        # One "fold" per state, excluding only that state: the query cannot retrieve itself,
+        # but every other state stays available, as in the ELES leave-one-state-out arm.
+        folds = [{uid} for uid in dict.fromkeys(str(s) for s in tsa["state"])]
+    logger.info(f"split={SPLIT}, {len(folds)} exclusion sets")
+
+    # Index the state rows once. The previous form rescanned every state for each fold, which is
+    # cheap at five folds and quadratic at leave-one-state-out's one fold per state (21,783 folds
+    # x 21,783 rows). Build a lookup instead and walk each fold's own members.
+    state_rows = {str(state_id): row for state_id, row in lf.iterrows()}
 
     work: list[WorkItem] = []
     for fold, excluded in enumerate(folds):
         excluded_sorted = sorted(excluded)
         n_fold = 0
-        for state_id, state_row in lf.iterrows():
-            uid = str(state_id)
-            if uid not in excluded:
+        for uid in excluded_sorted:
+            state_row = state_rows.get(uid)
+            if state_row is None:
                 continue
             subset = tsa_by_state.get(uid)
             if subset is None or subset.empty:
                 continue
 
-            # `limit` is per fold, so every fold is represented in a subsampled run.
+            # `limit` is per fold, so every fold is represented in a subsampled run. Under
+            # leave-one-state-out a fold holds one state, so `limit` caps folds instead: the
+            # outer loop is truncated below rather than each fold being trimmed.
             n_fold += 1
             if limit and n_fold > limit:
                 break
 
             state = {k: (None if pd.isna(v) else v) for k, v in state_row.items()}
             work.append((fold, uid, state, subset, excluded_sorted))
+        if limit and SPLIT == "leave-one-state-out" and len(work) >= limit:
+            break
 
     n_states = len(work)
     logger.info(f"{n_states} (fold, state) tasks queued across {n_jobs} worker processes")

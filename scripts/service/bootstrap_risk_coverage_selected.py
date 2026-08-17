@@ -98,7 +98,10 @@ METRIC_SETS: Final[dict[str, tuple[tuple[str, bool], ...]]] = {
 
 def _report_path(dataset_name: str) -> Path:
     if dataset_name == "bus39":
-        return TMP_DIR / "generator_diagnostics_selected_bus39.parquet"
+        # Leave-one-state-out, matching the ELES path below and the accuracy these diagnostics
+        # are scored against. The grouped-fold artifact is kept only for Table 2's matched
+        # supervised comparison, which cannot use leave-one-state-out.
+        return TMP_DIR / "generator_diagnostics_selected_bus39_loso.parquet"
     safe = dataset_name.replace("/", "-")
     topology_variant = os.environ.get("TOPOLOGY_VARIANT", "lines_only")
     return TMP_DIR / f"eles_generator_diagnostics_selected_{safe}_{topology_variant}.parquet"

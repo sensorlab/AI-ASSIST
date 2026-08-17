@@ -57,7 +57,13 @@ TMP_DIR.mkdir(parents=True, exist_ok=True)
 PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 LF_PATH: Final[Path] = PROJECT_DIR / "datasets/bus39/interim/lf.pkl"
 TSA_PATH: Final[Path] = PROJECT_DIR / "datasets/bus39/interim/tsa.pkl"
-OUT_RECORDS: Final[Path] = TMP_DIR / "generator_diagnostics_selected_bus39.parquet"
+# BUS39_BENCHMARK_SPLIT mirrors generator_deoracled_bound.py and the ELES arm, so the
+# diagnostics are measured under the same protocol as the accuracy they are evaluated against.
+SPLIT: Final[str] = os.environ.get("BUS39_BENCHMARK_SPLIT", "group-k-fold")
+if SPLIT not in {"group-k-fold", "leave-one-state-out"}:
+    raise ValueError(f"BUS39_BENCHMARK_SPLIT must be group-k-fold or leave-one-state-out, got {SPLIT!r}")
+_SUFFIX: Final[str] = "" if SPLIT == "group-k-fold" else "_loso"
+OUT_RECORDS: Final[Path] = TMP_DIR / f"generator_diagnostics_selected_bus39{_SUFFIX}.parquet"
 ALPHA: Final[float] = 1.0
 N_SPLITS: Final[int] = 5
 
@@ -143,15 +149,23 @@ def main() -> None:
     tsa: pd.DataFrame = pd.read_pickle(TSA_PATH)
     tsa_by_state = {str(s): sub for s, sub in tsa.groupby("state", observed=True)}
 
-    folds = group_k_fold_test_groups(tsa["state"], n_splits=N_SPLITS)
+    if SPLIT == "group-k-fold":
+        folds = group_k_fold_test_groups(tsa["state"], n_splits=N_SPLITS)
+    else:
+        folds = [{uid} for uid in dict.fromkeys(str(s) for s in tsa["state"])]
+    logger.info(f"split={SPLIT}, {len(folds)} exclusion sets")
+
+    # Index once: rescanning every state per fold is quadratic under leave-one-state-out,
+    # where there is one fold per state.
+    state_rows = {str(state_id): row for state_id, row in lf.iterrows()}
 
     work: list[WorkItem] = []
     for fold, excluded in enumerate(folds):
         excluded_sorted = sorted(excluded)
         n_fold = 0
-        for state_id, state_row in lf.iterrows():
-            uid = str(state_id)
-            if uid not in excluded:
+        for uid in excluded_sorted:
+            state_row = state_rows.get(uid)
+            if state_row is None:
                 continue
             subset = tsa_by_state.get(uid)
             if subset is None or subset.empty:
@@ -161,6 +175,8 @@ def main() -> None:
                 break
             state = {k: (None if pd.isna(v) else v) for k, v in state_row.items()}
             work.append((fold, uid, state, subset, excluded_sorted))
+        if limit and SPLIT == "leave-one-state-out" and len(work) >= limit:
+            break
 
     n_states = len(work)
     logger.info(f"{n_states} (fold, state) tasks queued across {n_jobs} worker processes")

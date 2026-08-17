@@ -75,7 +75,10 @@ def _bootstrap_mae(
 
 def _bus39_levels(rng: np.random.Generator) -> list[dict[str, object]]:
     full = pd.read_parquet(TMP_DIR / "full_deoracled_records.parquet")
-    gen = pd.read_parquet(TMP_DIR / "generator_deoracled_records.parquet")
+    # BUS39 leave-one-state-out, matching the ELES arm. The grouped-fold artifact
+    # (no _loso suffix) is retained for the matched supervised comparison in Table 2, which
+    # cannot use leave-one-state-out because a regressor would need one refit per state.
+    gen = pd.read_parquet(TMP_DIR / "generator_deoracled_records_loso.parquet")
 
     rows: list[dict[str, object]] = []
     specs = (
