@@ -80,7 +80,10 @@ def _stats(*, dataset: str, df: pd.DataFrame, covered_col: str) -> dict[str, obj
 
 
 def _bus39_stats() -> dict[str, object]:
-    df = pd.read_parquet(TMP_DIR / "generator_deoracled_records.parquet")
+    # BUS39 leave-one-state-out, matching the ELES arm. The grouped-fold artifact
+    # (no _loso suffix) is retained for the matched supervised comparison in Table 2, which
+    # cannot use leave-one-state-out because a regressor would need one refit per state.
+    df = pd.read_parquet(TMP_DIR / "generator_deoracled_records_loso.parquet")
     return _stats(dataset="bus39", df=df, covered_col="covered")
 
 

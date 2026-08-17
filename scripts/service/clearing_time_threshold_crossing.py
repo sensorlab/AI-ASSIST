@@ -56,7 +56,10 @@ TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
 PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
-BUS39_PATH: Final[Path] = TMP_DIR / "generator_deoracled_records.parquet"
+# BUS39 leave-one-state-out, matching the ELES arm. The grouped-fold artifact
+# (no _loso suffix) is retained for the matched supervised comparison in Table 2, which
+# cannot use leave-one-state-out because a regressor would need one refit per state.
+BUS39_PATH: Final[Path] = TMP_DIR / "generator_deoracled_records_loso.parquet"
 ELES_PATH: Final[Path] = TMP_DIR / "eles_deoracled_records_eles-2026-06_lines_only.parquet"
 OUTPUT_PATH: Final[Path] = PAPER_DATA_DIR / "clearing_time_threshold_crossing.csv"
 
