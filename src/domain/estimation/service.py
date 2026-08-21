@@ -1207,6 +1207,16 @@ def build_estimation_service() -> EstimationService:
 
     scaler: Any = _make_scaler_for_dataset(config.dataset_name)
     lf_scaled = cast(pd.DataFrame, scaler.fit_transform(lf))
+    # The scalers set n_jobs=-1, which pays off here (one fit_transform over the whole corpus,
+    # per-group work large enough to amortize the dispatch) and is actively harmful afterwards:
+    # the same fitted object then serves single-row queries in _query_neighbors(), where sklearn
+    # ships each of the six column groups to a loky *process*, so one row costs six pickle/IPC
+    # round trips. Measured per-query transform, same machine: BUS39 1,556 ms -> 38 ms (41x),
+    # ELES 1,035 ms -> 445 ms (2.3x); for scale, fit_transform over the entire corpus takes 3.0 s
+    # and 13.3 s respectively. n_jobs only selects the dispatch backend, never the arithmetic, so
+    # flipping it after fitting leaves both the fitted state and the transform output untouched
+    # (verified bitwise on both datasets).
+    scaler.n_jobs = None
 
     si_topo_cols: Iterable[str] = json.loads(path_topology_cols.read_text())
     feature_map: dict[str, str] = {}
