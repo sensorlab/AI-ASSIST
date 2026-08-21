@@ -7,19 +7,6 @@ import sys
 from pathlib import Path
 from typing import Any, Final
 
-# scikit-learn-intelex substitutes its own implementations for ExtraTreesRegressor and
-# RandomForestRegressor (HistGradientBoostingRegressor is not on its patch list and is therefore
-# unaffected). Those substitutions are not numerically equivalent to upstream scikit-learn, so
-# the tree rows this script produces do not reproduce exactly without it. Set
-# ML_BENCHMARK_NO_INTELEX=1 to fit through unmodified scikit-learn instead, which is the path a
-# third party needs to reproduce those rows on a stock install.
-if os.environ.get("ML_BENCHMARK_NO_INTELEX", "").strip() not in ("", "0", "false", "False"):
-    logging.getLogger(__name__).info("ML_BENCHMARK_NO_INTELEX set; fitting through unmodified scikit-learn")
-else:
-    from sklearnex import patch_sklearn
-
-    patch_sklearn()
-
 import joblib
 import numpy as np
 import pandas as pd
