@@ -90,7 +90,7 @@ def main() -> None:
 
     left = [
         "\\nextgroupplot[title={Span of a topology group}, xlabel={Calendar span},"
-        " ylabel={Cumulative (\\%)}, ymin=0, ymax=104, legend style={at={(0.97,0.28)}, anchor=east}]",
+        " ylabel={Cumulative (\\%)}, ymin=0, ymax=104, legend style={at={(0.93,0.28)}, anchor=east}]",
         rf"\addplot[gray!65, dashed, line width=0.7pt, mark=none, forget plot] coordinates {{({record_days:.4g},0) ({record_days:.4g},104)}};",
         rf"\addplot[okabeBlue, line width=1pt, mark=none] coordinates {{{_coords(xg, yg, '.2f')}}};",
         rf"\addplot[okabeVermillion, line width=1pt, densely dashed, mark=none] coordinates {{{_coords(xs, ys, '.2f')}}};",
@@ -101,7 +101,7 @@ def main() -> None:
     right = [
         "\\nextgroupplot[title={Span against group size}, xlabel={Calendar span},"
         " ylabel={States in group}, ymode=log, ymin=1.6, ymax=90,"
-        " ytick={2,5,10,20,50}, yticklabels={2,5,10,20,50}, legend style={at={(0.97,0.94)}, anchor=north east}]",
+        " ytick={2,5,10,20,50}, yticklabels={2,5,10,20,50}, legend style={at={(0.93,0.94)}, anchor=north east}]",
         rf"\addplot[gray!65, dashed, line width=0.7pt, mark=none, forget plot] coordinates {{({record_days:.4g},1.6) ({record_days:.4g},90)}};",
         "\\addplot[only marks, mark=*, mark size=0.9pt, color=okabeBlue, opacity=0.45] coordinates {"
         + _coords(small["span"], small["n_states"], ".0f")
