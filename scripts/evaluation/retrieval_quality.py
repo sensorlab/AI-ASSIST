@@ -68,6 +68,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.config.logging import configure_logging  # noqa: E402
 from src.domain.estimation.service import _make_scaler_for_dataset, build_estimation_service  # noqa: E402
+from src.services.qdrant.repository import RE_TOPO  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -111,8 +112,10 @@ def _index_fidelity(
     n_query: int,
 ) -> dict[str, Any]:
     """Measures recall@K of the vector database's own retrieval path against the exact
-    brute-force top-K on the same scaled matrix, both restricted to the query's same-
-    topology candidate pool (the production filter - see repository.py::query()).
+    brute-force top-K over the SAME vector the index holds (embed_cols, i.e. the scaled
+    matrix minus its oserv_* columns), both restricted to the query's same-topology candidate
+    pool (the production filter - see repository.py::query()). Passing the full mapping here
+    instead compares two different metrics and cannot measure fidelity.
     Uses the real EstimationService/DatabaseQdrant rather than assuming the founding-
     assumption check above says anything about the index itself."""
     if topo_id_by_state is None:
@@ -251,7 +254,14 @@ def main() -> None:
     service, topo_id_by_state = _topology_ids(lf, dataset)
 
     scaler = _make_scaler_for_dataset(dataset)
-    Z = np.asarray(scaler.fit_transform(lf), dtype=np.float64)
+    scaled = scaler.fit_transform(lf)
+    Z = np.asarray(scaled, dtype=np.float64)
+    # The index searches embed_cols only: DatabaseQdrant drops every oserv_* column
+    # (repository.py RE_TOPO) and keeps the rest. The founding-assumption diagnostic below
+    # deliberately uses the full mapping, but a fidelity check has to compare like with like,
+    # so brute force runs on exactly the columns the index holds.
+    embed_mask = np.array([not RE_TOPO.match(str(c)) for c in scaled.columns])
+    Z_indexed = Z[:, embed_mask]
     states = [str(i) for i in lf.index]
     pos = {s: i for i, s in enumerate(states)}
     logger.info(f"scaled matrix {Z.shape}")
@@ -318,7 +328,9 @@ def main() -> None:
     )
 
     logger.info(f"Running index-fidelity check at K={fidelity_k} (builds a real EstimationService)...")
-    fidelity = _index_fidelity(lf, Z, pos, states, service, topo_id_by_state, rng=rng, k=fidelity_k, n_query=n_query)
+    fidelity = _index_fidelity(
+        lf, Z_indexed, pos, states, service, topo_id_by_state, rng=rng, k=fidelity_k, n_query=n_query
+    )
     fidelity["index_fidelity_k"] = fidelity_k
 
     rows = [
