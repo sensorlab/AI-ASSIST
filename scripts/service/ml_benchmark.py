@@ -131,17 +131,17 @@ def build_record_table(
     return X, y, groups
 
 
-def make_models(
-    categorical_cols: list[str], *, max_features: float | str = 1.0, n_jobs: int = 8
-) -> dict[str, Pipeline]:
-    # max_features defaults to 1.0 (every feature considered at every split), matching
-    # RandomForestRegressor/ExtraTreesRegressor's own sklearn default -- unlike the classifier
-    # variants, which default to "sqrt". That default is tractable on BUS39's 260 scaled
-    # features but not on ELES's 12,524 (mostly one-hot categorical): evaluating splits over
-    # every feature at every node, for 300 trees x 5 folds, made a single ELES run run for
-    # 1.5+ hours and ~100 GB RSS without finishing (2026-08-08). Overridable via
-    # ML_BENCHMARK_MAX_FEATURES so BUS39's already-reported number stays reproducible at its
-    # original setting while a wide dataset can opt into "sqrt"/"log2"/a fraction.
+def make_preprocessor(categorical_cols: list[str]) -> Pipeline:
+    """One-hot the contingency columns, pass the rest through, drop constant columns.
+
+    Fitted once per training fold and shared by every estimator in that fold. It used to be
+    embedded in each model's own Pipeline, but `Pipeline.fit()` does not clone its steps, so
+    running three models refit and reapplied the identical transform three times per fold. On
+    ELES that means densifying a 322,823 x 12,525 float64 matrix (~32 GB) three times over
+    instead of once, single-threaded, before any tree is grown - which dominated a 16.6 h run
+    at 9 of 48 cores busy. Hoisting it here is a pure speedup: every estimator receives exactly
+    the transform it received before, fitted on exactly the same training fold.
+    """
     preprocess = ColumnTransformer(
         transformers=[
             ("cat", _one_hot_encoder(), categorical_cols),
@@ -150,69 +150,47 @@ def make_models(
         verbose_feature_names_out=False,
     )
     # Drops exact-zero-variance columns (fit per training fold, so this cannot leak test
-    # information) before the model sees them. Strictly a no-op on results: a column that
-    # never varies within a fold carries no information and a tree can never split on it
-    # anyway. On ELES's one-hot-heavy 12,524-column representation, many of those columns are
-    # per-bus/per-branch indicators that are constant (usually all-zero) within most folds --
-    # dropping them shrinks the matrix every tree-based model actually has to scan (2026-08-08,
-    # prompted by the ELES extra_trees run above being far slower than max_features=sqrt alone
-    # explained).
-    drop_constant = VarianceThreshold(threshold=0.0)
+    # information) before the model sees them. Strictly a no-op on results: a column that never
+    # varies within a fold carries no information and a tree can never split on it anyway. On
+    # ELES's one-hot-heavy representation many such columns are per-bus/per-branch indicators
+    # that are constant within most folds, so dropping them shrinks the matrix every model scans.
+    return Pipeline(steps=[("preprocess", preprocess), ("drop_constant", VarianceThreshold(threshold=0.0))])
 
+
+def make_models(max_features: float | str = 1.0, n_jobs: int = 8) -> dict[str, Any]:
+    """Bare estimators, fitted on the already-preprocessed fold matrices.
+
+    max_features defaults to 1.0 (every feature considered at every split), matching
+    RandomForestRegressor/ExtraTreesRegressor's own sklearn default -- unlike the classifier
+    variants, which default to "sqrt". That default is tractable on BUS39's 260 scaled features
+    but not on ELES's 12,524 (mostly one-hot categorical): evaluating splits over every feature
+    at every node, for 300 trees x 5 folds, made a single ELES run run for 1.5+ hours and
+    ~100 GB RSS without finishing (2026-08-08). Overridable via ML_BENCHMARK_MAX_FEATURES so
+    BUS39's already-reported number stays reproducible at its original setting while a wide
+    dataset can opt into "sqrt"/"log2"/a fraction.
+    """
     return {
-        "global_median": Pipeline(
-            steps=[
-                ("preprocess", preprocess),
-                ("model", DummyRegressor(strategy="median")),
-            ]
+        "global_median": DummyRegressor(strategy="median"),
+        "random_forest": RandomForestRegressor(
+            n_estimators=300,
+            min_samples_leaf=2,
+            max_features=max_features,
+            n_jobs=n_jobs,
+            random_state=42,
         ),
-        "random_forest": Pipeline(
-            steps=[
-                ("preprocess", preprocess),
-                ("drop_constant", drop_constant),
-                (
-                    "model",
-                    RandomForestRegressor(
-                        n_estimators=300,
-                        min_samples_leaf=2,
-                        max_features=max_features,
-                        n_jobs=n_jobs,
-                        random_state=42,
-                    ),
-                ),
-            ]
+        "extra_trees": ExtraTreesRegressor(
+            n_estimators=300,
+            min_samples_leaf=2,
+            max_features=max_features,
+            n_jobs=n_jobs,
+            random_state=42,
         ),
-        "extra_trees": Pipeline(
-            steps=[
-                ("preprocess", preprocess),
-                ("drop_constant", drop_constant),
-                (
-                    "model",
-                    ExtraTreesRegressor(
-                        n_estimators=300,
-                        min_samples_leaf=2,
-                        max_features=max_features,
-                        n_jobs=n_jobs,
-                        random_state=42,
-                    ),
-                ),
-            ]
-        ),
-        "hist_gradient_boosting": Pipeline(
-            steps=[
-                ("preprocess", preprocess),
-                ("drop_constant", drop_constant),
-                (
-                    "model",
-                    HistGradientBoostingRegressor(
-                        loss="absolute_error",
-                        max_iter=300,
-                        learning_rate=0.05,
-                        l2_regularization=1e-3,
-                        random_state=42,
-                    ),
-                ),
-            ]
+        "hist_gradient_boosting": HistGradientBoostingRegressor(
+            loss="absolute_error",
+            max_iter=300,
+            learning_rate=0.05,
+            l2_regularization=1e-3,
+            random_state=42,
         ),
     }
 
@@ -273,7 +251,8 @@ def run_group_cv(
     exclusion_window: pd.Timedelta | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     categorical_cols = [c for c in CONTINGENCY_CATEGORICAL_COLUMNS if c in X.columns]
-    models = make_models(categorical_cols, max_features=max_features, n_jobs=n_jobs)
+    preprocessor = make_preprocessor(categorical_cols)
+    models = make_models(max_features=max_features, n_jobs=n_jobs)
     if model_names is not None:
         # Each model's Pipeline independently re-fits the (shared, but per-Pipeline-refitted)
         # ColumnTransformer preprocessing step, so every extra model in this dict multiplies
@@ -324,9 +303,13 @@ def run_group_cv(
         )
         prediction_frames.append(prediction_base.assign(model="location_median", cct_pred=y_pred))
 
+        # One fit/transform per fold, shared by every estimator (see make_preprocessor).
+        X_train_t = preprocessor.fit_transform(X_train)
+        X_test_t = preprocessor.transform(X_test)
+
         for name, model in models.items():
-            model.fit(X_train, y_train)
-            pred = model.predict(X_test)
+            model.fit(X_train_t, y_train)
+            pred = model.predict(X_test_t)
 
             rows.append(
                 {
