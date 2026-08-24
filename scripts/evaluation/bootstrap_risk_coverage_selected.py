@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
-PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
+PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "results" / "data"
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 

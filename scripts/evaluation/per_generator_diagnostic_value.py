@@ -41,7 +41,7 @@ from src.config.logging import configure_logging
 logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
-PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
+PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "results" / "data"
 PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 MIN_GROUP_SIZE: Final[int] = 500  # below this, per-generator nAURC is too noisy to report

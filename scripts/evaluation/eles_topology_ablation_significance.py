@@ -43,7 +43,7 @@ PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 # Evaluation artifacts don't belong at the repo root: raw/intermediate (.joblib) go to tmp/,
 # CSV summaries the paper actually consumes go to paper-sr/data/ (2026-08-05 cleanup).
 TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
-PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
+PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "results" / "data"
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 # ELES_ABLATION_SAMPLE_SEED lets this recompute the same significance/tail-quantile check
