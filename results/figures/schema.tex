@@ -2,7 +2,7 @@
 % footnotesize is 7pt, scriptsize is 9pt, tiny is 10pt. Sub-labels therefore cannot
 % use the smaller-sounding commands -- they render larger than the 7pt node font and
 % overflow their own shapes. subtxt fixes an explicit size below the node font.
-\newcommand{\subtxt}{\fontsize{5.6}{6.4}\selectfont}
+\newcommand{\subtxt}{\fontsize{7.2}{8.2}\selectfont}
 % Architecture schema of the AI-ASSIST system (TikZ).
 % Adapted from paper-ijepes/figures/schema.tex on explicit instruction (ground-up
 % policy otherwise applies to this paper - see CLAUDE.md). Checked against the
@@ -23,17 +23,17 @@
 % separate pipeline step (see note above) - exact topology filter before
 % similarity search still holds, as does the no-prediction-intervals caveat.
 \begin{tikzpicture}[
-    font=\footnotesize,
-    node distance=3mm and 5mm,
+    font=\fontsize{8.5}{10}\selectfont,
+    node distance=3mm and 3mm,
     box/.style={draw, rounded corners=1pt, align=center, fill=gray!10,
-                inner sep=4pt, minimum height=10mm},
+                inner sep=4pt, minimum height=10mm, text width=22mm},
     proc/.style={draw, rounded corners=1pt, align=center, fill=blue!8,
-                 inner sep=4pt, minimum height=10mm},
+                 inner sep=4pt, minimum height=10mm, text width=22mm},
     store/.style={draw, cylinder, shape border rotate=90, aspect=0.12,
                   align=center, fill=orange!15, inner sep=2pt,
-                  text width=26mm, minimum height=15mm},
+                  text width=20mm, minimum height=15mm},
     outbox/.style={draw, rounded corners=1pt, align=center, fill=green!10,
-                   inner sep=4pt, minimum height=10mm},
+                   inner sep=4pt, minimum height=10mm, text width=22mm},
     lab/.style={font=\subtxt\itshape, gray, fill=white, inner sep=1.4pt},
     arr/.style={-{Latex[length=2mm]}, semithick},
     qarr/.style={arr, dashed, blue!50!black},
@@ -54,8 +54,8 @@
 \draw[qarr] (agg) -- (dash);
 
 % ---------------- Shared stores (middle layer) ----------------
-\node[store, above=7mm of knn] (index) {Feature-vector\\index};
-\node[store, text width=30mm, above=7mm of agg] (records)
+\node[store, above=10mm of knn] (index) {Feature-vector\\index};
+\node[store, text width=22mm, above=10mm of agg] (records)
     {Contingency-record\\archive\\{\subtxt states and outcomes}};
 
 \draw[arr] (index.south) -- (knn.north);
@@ -63,7 +63,7 @@
     node[lab, midway, right=1mm] {associated contingency records};
 
 % ---------------- Offline stage (top row) ----------------
-\node[proc, above=7mm of index] (prep) {Feature mapping $\phi$\\[1pt]
+\node[proc, above=10mm of index] (prep) {Feature mapping $\phi$\\[1pt]
     {\subtxt sine--cosine angle encoding,}\\
     {\subtxt per-column standardization}};
 \node[proc, left=of prep] (sim) {Offline time-domain\\simulation};
@@ -72,7 +72,7 @@
 \draw[arr] (inputs) -- (sim);
 \draw[arr] (sim) -- (prep);
 \draw[arr] (prep.south) -- (index.north)
-    node[lab, midway, right=1mm] {feature vectors $z_i$};
+    node[lab, pos=0.18, left=1mm] {feature vectors $z_i$};
 \draw[arr] (prep.east) -| (records.north)
     node[lab, pos=0.25, above] {records};
 
