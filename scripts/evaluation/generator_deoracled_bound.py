@@ -16,12 +16,12 @@ Also records the rank of the true critical generator in the weight-mass ordering
 whatever the selection number turns out to be.
 
 Runs the real service in-process, in parallel across worker *processes* (not threads, see
-scripts/service/full_deoracled_bound.py's docstring for why): each worker builds its own
+scripts/evaluation/full_deoracled_bound.py's docstring for why): each worker builds its own
 EstimationService and embedded :memory: Qdrant collection once and processes its share of
 states sequentially.
 
 Run from the repository root:
-    uv run python scripts/service/generator_deoracled_bound.py [limit_per_fold] [n_jobs]
+    uv run python scripts/evaluation/generator_deoracled_bound.py [limit_per_fold] [n_jobs]
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ WorkItem = tuple[int, str, dict[str, Any], pd.DataFrame, list[str]]
 def _process_chunk(items: list[WorkItem]) -> list[dict[str, Any]]:
     """One worker process's share of work. Builds its own EstimationService exactly once,
     not once per state - process-parallel rather than thread-parallel for the same reason
-    as scripts/service/full_deoracled_bound.py: sharing one in-process Qdrant client across
+    as scripts/evaluation/full_deoracled_bound.py: sharing one in-process Qdrant client across
     threads is untested in this codebase, and BUS39 is small enough (~21.8k points) that
     duplicating the embedded collection per worker is cheap."""
     svc = build_estimation_service()

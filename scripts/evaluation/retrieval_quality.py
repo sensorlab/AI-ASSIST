@@ -43,7 +43,7 @@ representations differ in dimensionality and in which feature block carries the 
 result on one says nothing about the other.
 
 Run from the repository root:
-    uv run python scripts/service/retrieval_quality.py [dataset] [n_query_states] [min_slice] [fidelity_k]
+    uv run python scripts/evaluation/retrieval_quality.py [dataset] [n_query_states] [min_slice] [fidelity_k]
 e.g. bus39 300 200   or   eles/2026-06 300 50 5
 """
 

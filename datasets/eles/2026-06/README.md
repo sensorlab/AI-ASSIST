@@ -157,9 +157,9 @@ constant value means physically, and how much weight to put on the generator-spe
    `eles/2026-06` benchmark under `lines-only` (production path, not the exploratory script below) and
    rewrite `paper.tex` section 6.2's ELES numbers/narrative to match.
 5. **Done 2026-07-25**: all of the above (points 2-4) is implemented and in production
-   (`scripts/service/eles_benchmark.py` reruns the confidential `eles/2026-06` leave-one-group-out
+   (`scripts/evaluation/eles_benchmark.py` reruns the confidential `eles/2026-06` leave-one-group-out
    benchmark under `lines-only` through the real `build_estimation_service()` path, not a hand-rolled
-   substitute; `scripts/service/eles_topology_candidate_eval.py`, referenced below, is the superseded
+   substitute; `scripts/evaluation/eles_topology_candidate_eval.py`, referenced below, is the superseded
    exploratory precursor kept only for history). Full-population `lines-only` result: MAE 0.0488 ->
    0.0437, RMSE 0.1119 -> 0.1046, coverage 99.45% -> 63.6%. These are the numbers reported in
    `paper.tex` section 6.2. The earlier exploratory run against `eles/2026-01` (`report-eles2026-01-
@@ -182,7 +182,7 @@ A full leave-one-group-out pass with the filter disabled turned out to be comput
 ~4,400-state pool and far more distinct `Crit_gen` groups per query, not just a bigger loop). The ablation
 instead uses a fixed random subsample of 300 of the 4,393 states as queries (seed 42, same convention as
 the paper's K/alpha sensitivity sweep), identical across both arms; retrieval itself still searches the
-full reference population - `scripts/service/eles_benchmark.py`'s `ELES_BENCHMARK_SAMPLE_STATES` env var.
+full reference population - `scripts/evaluation/eles_benchmark.py`'s `ELES_BENCHMARK_SAMPLE_STATES` env var.
 
 **Result**: enabling `lines-only` reduces coverage from 99.6% to 63.0% on this subsample (consistent with
 the full-population numbers above). Restricted to the 13,856 records both arms actually answer (matched by
@@ -250,7 +250,7 @@ Two column families, reshaped separately then joined into one output table:
 
 ### State-vs-state: does every state cover the same generators?
 
-Produced by `scripts/service/eles_sssa_generator_set_eval.py` (pure pandas over `interim/sssa.pkl`, no Qdrant/`EstimationService` involved): per state, the set of generators with at least one SSSA participation row, grouped by exact-match signature.
+Produced by `scripts/evaluation/eles_sssa_generator_set_eval.py` (pure pandas over `interim/sssa.pkl`, no Qdrant/`EstimationService` involved): per state, the set of generators with at least one SSSA participation row, grouped by exact-match signature.
 
 | Dataset | States total | States w/ SSSA | Distinct generator-sets | Max group size | % states with an exact-match twin | Mean set size | Median set size |
 |---|---|---|---|---|---|---|---|

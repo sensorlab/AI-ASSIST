@@ -16,7 +16,7 @@ eles_deoracled_bound.py.
 
 Run from the repository root, e.g.:
     DATASET_NAME=eles/2026-06 TOPOLOGY_VARIANT=lines_only QDRANT_URL=":memory:" \\
-        uv run python scripts/service/eles_generator_diagnostics_selected.py [limit] [n_jobs]
+        uv run python scripts/evaluation/eles_generator_diagnostics_selected.py [limit] [n_jobs]
 
 For the matched five-fold comparison, add:
     ELES_BENCHMARK_SPLIT=group-k-fold

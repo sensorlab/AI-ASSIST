@@ -18,7 +18,7 @@ accuracy figure that no longer uses the true location as an input, while still u
 true critical generator - a partial, not full, deployment-style bound.
 
 Run from repository root:
-    uv run python scripts/service/deployment_style_bound.py
+    uv run python scripts/evaluation/deployment_style_bound.py
 """
 
 from __future__ import annotations

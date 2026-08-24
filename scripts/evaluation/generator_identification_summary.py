@@ -15,7 +15,7 @@ gap, not a mis-identification; see the two scripts' own `stats` computation for 
 authoritative definition this mirrors).
 
 Run from the repository root:
-    uv run python scripts/service/generator_identification_summary.py
+    uv run python scripts/evaluation/generator_identification_summary.py
 """
 
 from __future__ import annotations

@@ -1,11 +1,11 @@
 """State-clustered significance test and tail-quantile check for the ELES topology
-with/without-filter accuracy ablation (see scripts/service/eles_benchmark.py and
+with/without-filter accuracy ablation (see scripts/evaluation/eles_benchmark.py and
 datasets/eles/2026-06/README.md's "Topology Matching Accuracy Ablation" section).
 
 The original ablation (paper.tex Section 6.2) reported a paired Wilcoxon signed-rank test
 over the 13,856 matched records treating them as independent observations, even though they
 nest inside only 300 independently sampled query states (~46 records/state) - the same
-clustering the paper's own state-resampling bootstrap (Section 6.3, scripts/service/
+clustering the paper's own state-resampling bootstrap (Section 6.3, scripts/evaluation/
 bootstrap_risk_coverage.py) exists specifically to respect elsewhere. This script:
 
 1. Recomputes the significance test at the correct unit of analysis: a paired test on the
@@ -19,7 +19,7 @@ bootstrap_risk_coverage.py) exists specifically to respect elsewhere. This scrip
    (not necessarily central tendency) should differ between arms.
 
 Run from repository root:
-    uv run python scripts/service/eles_topology_ablation_significance.py
+    uv run python scripts/evaluation/eles_topology_ablation_significance.py
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 # ELES_ABLATION_SAMPLE_SEED lets this recompute the same significance/tail-quantile check
-# against a different ablation sample seed's joblib pair (see scripts/service/
+# against a different ablation sample seed's joblib pair (see scripts/evaluation/
 # eles_benchmark.py's ELES_BENCHMARK_SAMPLE_SEED), for a multi-seed robustness check on the
 # original (seed 42) finding - not just a single-draw result.
 _ABLATION_SEED = os.environ.get("ELES_ABLATION_SAMPLE_SEED")

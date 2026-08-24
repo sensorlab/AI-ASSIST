@@ -16,7 +16,7 @@ because the three quantities are on different scales and a pooled error would be
 Run from the repository root, e.g.:
 
     DATASET_NAME=eles/2026-06 QDRANT_URL=":memory:" \\
-        uv run python scripts/service/fsa_benchmark.py [n_states] [n_jobs]
+        uv run python scripts/evaluation/fsa_benchmark.py [n_states] [n_jobs]
 
 n_states subsamples the query side (default 200, 0 means every state) because ELES holds
 5,969,844 FSA rows over 4,393 states, a median of 1,260 pairs per state, so a full sweep is

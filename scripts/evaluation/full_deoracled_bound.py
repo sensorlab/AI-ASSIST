@@ -27,7 +27,7 @@ across groups the way raw kernel mass is.
 Also records the joint rank of the true (location, generator) pair in that pooled mass
 ordering, generalizing generator_deoracled_bound.py's gen_true_rank to both axes. The
 "oracle_location_and_generator" summary row is a sanity check against the main benchmark's
-service_location_strict numbers (scripts/service/benchmark.py) - both score the same
+service_location_strict numbers (scripts/evaluation/benchmark.py) - both score the same
 (true location, true generator) target, just through different code paths, so they should
 agree closely; a large discrepancy would flag a bug in one of the two.
 
@@ -41,7 +41,7 @@ equivalent loop is sequential, and benchmark.py's parallelism goes through the H
 shared in-process client).
 
 Run from the repository root:
-    uv run python scripts/service/full_deoracled_bound.py [limit_per_fold] [n_jobs]
+    uv run python scripts/evaluation/full_deoracled_bound.py [limit_per_fold] [n_jobs]
 """
 
 from __future__ import annotations

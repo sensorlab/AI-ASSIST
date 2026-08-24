@@ -6,7 +6,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from scripts.service import bootstrap_risk_coverage_selected as brs
+from scripts.evaluation import bootstrap_risk_coverage_selected as brs
 
 
 def _synthetic_df_covered(rng: np.random.Generator, n: int = 60) -> pd.DataFrame:

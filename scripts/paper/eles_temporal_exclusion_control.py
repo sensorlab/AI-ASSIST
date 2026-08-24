@@ -11,7 +11,7 @@ equals the CCT bisection tolerance of 0.010 s.
 This compares the committed leave-one-state-out run against a control produced by
 
     DATASET_NAME=eles/2026-06 TOPOLOGY_VARIANT=lines_only ELES_TEMPORAL_EXCLUSION_HOURS=24 \\
-        uv run python scripts/service/eles_generator_diagnostics_selected.py 0 <n_jobs>
+        uv run python scripts/evaluation/eles_generator_diagnostics_selected.py 0 <n_jobs>
 
 which additionally excludes every state within the window. Both arms are restricted to the
 records covered in both, so the comparison is paired and not a coverage artifact; coverage loss

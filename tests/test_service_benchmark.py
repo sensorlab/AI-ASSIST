@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from scripts.service import benchmark, ml_benchmark
+from scripts.evaluation import benchmark, ml_benchmark
 from src.benchmarking import group_k_fold_indices, group_k_fold_test_groups
 
 

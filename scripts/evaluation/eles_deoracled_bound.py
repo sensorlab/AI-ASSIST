@@ -1,4 +1,4 @@
-"""De-oracling ladder for ELES, matching scripts/service/full_deoracled_bound.py and
+"""De-oracling ladder for ELES, matching scripts/evaluation/full_deoracled_bound.py and
 generator_deoracled_bound.py's BUS39 analysis, adapted for ELES's dataset access pattern
 (SqliteRecordStore-backed tsa.db, not a flat tsa.pkl) and topology-variant selection
 (DATASET_NAME=eles/2026-06, TOPOLOGY_VARIANT=lines_only|slovenia_only).
@@ -26,10 +26,10 @@ embedded :memory: Qdrant collection once.
 
 Run from the repository root, e.g.:
     DATASET_NAME=eles/2026-06 TOPOLOGY_VARIANT=lines_only QDRANT_URL=":memory:" \\
-        uv run python scripts/service/eles_deoracled_bound.py [limit] [n_jobs]
+        uv run python scripts/evaluation/eles_deoracled_bound.py [limit] [n_jobs]
 
     DATASET_NAME=eles/2026-06 TOPOLOGY_VARIANT=lines_only QDRANT_URL=":memory:" \\
-        ELES_BENCHMARK_SAMPLE_STATES=300 uv run python scripts/service/eles_deoracled_bound.py
+        ELES_BENCHMARK_SAMPLE_STATES=300 uv run python scripts/evaluation/eles_deoracled_bound.py
 """
 
 from __future__ import annotations
