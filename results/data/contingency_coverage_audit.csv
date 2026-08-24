@@ -1,0 +1,3 @@
+dataset,n_states,n_distinct_contingencies,n_records,contingencies_per_state_mean,contingencies_per_state_min,contingencies_per_state_max,distinct_contingencies_per_state_mean,distinct_contingencies_per_state_max,grid_fill_rate,rho_loading_vs_observed_cct,p_loading_vs_observed_cct,rho_loading_vs_n_contingencies,p_loading_vs_n_contingencies,severe_states_carry_more_records
+bus39,21783,75,1044797,47.963870908506635,1,59,47.963870908506635,59,0.6395182787800885,-0.9855792001600624,0.0,0.8724138555074354,0.0,True
+eles/2026-06,4393,213,322823,73.48577282039608,21,172,73.4393353061689,101,0.3450036282647703,-0.2993226350485503,1.2709845483378666e-91,0.36287129290034226,7.881348039018007e-137,True
