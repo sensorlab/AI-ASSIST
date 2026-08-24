@@ -1,0 +1,9 @@
+quantity,value
+n_groups,14347.0
+corr_n_eff_vs_n_unique_states,0.21162535416688907
+corr_compactness_vs_n_unique_states,0.030975164896312614
+neff_q75,92.18577212796872
+compactness_q75,0.008849752180994968
+frac_top_quartile_neff_and_low_diversity,0.0
+frac_top_quartile_compactness_and_low_diversity,0.0
+median_n_unique_states,100.0

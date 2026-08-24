@@ -1,0 +1,46 @@
+variant,quantity,value,cutoff_fraction,cutoff_date,n_post_cutoff_queries,frozen_library_support_fraction,expanding_library_support_fraction,expanding_library_support_fraction_20min_lag
+lines_only,n_topology_groups,1785,,,,,,
+lines_only,n_states,4393,,,,,,
+lines_only,global_expanding_support_fraction,0.5936717505121785,,,,,,
+lines_only,global_expanding_support_fraction_20min_lag_equals_zero_lag,True,,,,,,
+lines_only,date_range_start,2024-06-27 00:15:00,,,,,,
+lines_only,date_range_end,2025-01-26 23:15:00,,,,,,
+lines_only,cutoff_support,,0.1,2024-07-18 09:45:00,3906.0,0.0002560163850486431,0.5970302099334357,0.5970302099334357
+lines_only,cutoff_support,,0.2,2024-08-08 19:15:00,3435.0,0.0034934497816593887,0.5967976710334789,0.5967976710334789
+lines_only,cutoff_support,,0.3,2024-08-30 04:45:00,3025.0,0.009586776859504133,0.583801652892562,0.583801652892562
+lines_only,cutoff_support,,0.4,2024-09-20 14:15:00,2642.0,0.0,0.5912187736563209,0.5912187736563209
+lines_only,cutoff_support,,0.5,2024-10-11 23:45:00,2182.0,0.004124656278643446,0.6090742438130156,0.6090742438130156
+lines_only,cutoff_support,,0.6,2024-11-02 09:15:00,1721.0,0.002324230098779779,0.6345148169668797,0.6345148169668797
+lines_only,cutoff_support,,0.7,2024-11-23 18:45:00,1268.0,0.028391167192429023,0.6624605678233438,0.6624605678233438
+lines_only,cutoff_support,,0.8,2024-12-15 04:15:00,774.0,0.003875968992248062,0.6627906976744186,0.6627906976744186
+lines_only,cutoff_support,,0.9,2025-01-05 13:45:00,279.0,0.007168458781362007,0.6630824372759857,0.6630824372759857
+full,n_topology_groups,4281,,,,,,
+full,n_states,4393,,,,,,
+full,global_expanding_support_fraction,0.025495105850216252,,,,,,
+full,global_expanding_support_fraction_20min_lag_equals_zero_lag,True,,,,,,
+full,date_range_start,2024-06-27 00:15:00,,,,,,
+full,date_range_end,2025-01-26 23:15:00,,,,,,
+full,cutoff_support,,0.1,2024-07-18 09:45:00,3906.0,0.0,0.024321556579621095,0.024321556579621095
+full,cutoff_support,,0.2,2024-08-08 19:15:00,3435.0,0.0,0.025036390101892285,0.025036390101892285
+full,cutoff_support,,0.3,2024-08-30 04:45:00,3025.0,0.0,0.027107438016528925,0.027107438016528925
+full,cutoff_support,,0.4,2024-09-20 14:15:00,2642.0,0.0,0.028009084027252083,0.028009084027252083
+full,cutoff_support,,0.5,2024-10-11 23:45:00,2182.0,0.0,0.021998166819431713,0.021998166819431713
+full,cutoff_support,,0.6,2024-11-02 09:15:00,1721.0,0.0,0.016269610691458453,0.016269610691458453
+full,cutoff_support,,0.7,2024-11-23 18:45:00,1268.0,0.0015772870662460567,0.01498422712933754,0.01498422712933754
+full,cutoff_support,,0.8,2024-12-15 04:15:00,774.0,0.0012919896640826874,0.015503875968992248,0.015503875968992248
+full,cutoff_support,,0.9,2025-01-05 13:45:00,279.0,0.0,0.025089605734767026,0.025089605734767026
+slovenia_only,n_topology_groups,1,,,,,,
+slovenia_only,n_states,4393,,,,,,
+slovenia_only,global_expanding_support_fraction,0.9997723651263374,,,,,,
+slovenia_only,global_expanding_support_fraction_20min_lag_equals_zero_lag,True,,,,,,
+slovenia_only,date_range_start,2024-06-27 00:15:00,,,,,,
+slovenia_only,date_range_end,2025-01-26 23:15:00,,,,,,
+slovenia_only,cutoff_support,,0.1,2024-07-18 09:45:00,3906.0,1.0,1.0,1.0
+slovenia_only,cutoff_support,,0.2,2024-08-08 19:15:00,3435.0,1.0,1.0,1.0
+slovenia_only,cutoff_support,,0.3,2024-08-30 04:45:00,3025.0,1.0,1.0,1.0
+slovenia_only,cutoff_support,,0.4,2024-09-20 14:15:00,2642.0,1.0,1.0,1.0
+slovenia_only,cutoff_support,,0.5,2024-10-11 23:45:00,2182.0,1.0,1.0,1.0
+slovenia_only,cutoff_support,,0.6,2024-11-02 09:15:00,1721.0,1.0,1.0,1.0
+slovenia_only,cutoff_support,,0.7,2024-11-23 18:45:00,1268.0,1.0,1.0,1.0
+slovenia_only,cutoff_support,,0.8,2024-12-15 04:15:00,774.0,1.0,1.0,1.0
+slovenia_only,cutoff_support,,0.9,2025-01-05 13:45:00,279.0,1.0,1.0,1.0
