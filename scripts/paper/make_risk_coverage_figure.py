@@ -47,12 +47,20 @@ PANELS: Final[tuple[tuple[str, str, str], ...]] = (
 SERIES: Final[tuple[tuple[str, str, str, str], ...]] = (
     ("cct_weighted_std", "Weighted CCT dispersion", "okabeBlue", "*"),
     ("n_neighbors", "Retrieved neighbor count", "okabeSky", "oplus*"),
+    # Dashed on purpose: on BUS39 this coincides exactly with "Retrieved neighbor count"
+    # (K=100 binds, so each retrieved state contributes one neighbor). Drawn after it, a solid
+    # stroke hides it completely. Dashing lets the series underneath show through the gaps.
     ("n_unique_states", "Unique supporting states", "okabeBlack", "star"),
     ("location_weight_mass", "Location support mass", "okabeOrange", "square*"),
     ("n_eff", "Effective sample size", "okabeGreen", "triangle*"),
     ("distance_min", "Minimum query distance", "okabeVermillion", "diamond*"),
     ("neighborhood_compactness", "Neighborhood compactness", "okabePurple", "pentagon*"),
 )
+
+# Series drawn with a dashed stroke so a coinciding series underneath stays visible. The
+# style is applied in both panels, since one legend serves both and a series cannot change
+# appearance between them.
+DASHED_SERIES: Final[frozenset[str]] = frozenset({"n_unique_states"})
 
 # The five published diagnostics come from bootstrap_ci_selected_*.csv; the two count
 # diagnostics were added later and live in n_neighbors_selected_naurc.csv, restricted to the
@@ -132,7 +140,11 @@ def _panel(title: str, filename: str, dataset_key: str, with_legend: bool) -> st
     )
     for metric, _label, color, mark in SERIES:
         coords = " ".join(f"({cov:.2f},{normalized.loc[cov, metric]:.4f})" for cov in sorted(normalized.index))
-        lines.append(f"\\addplot[color={color}, mark={mark}, mark options={{fill={color}}}] coordinates {{{coords}}};")
+        style = ", dashed" if metric in DASHED_SERIES else ""
+        lines.append(
+            f"\\addplot[color={color}, mark={mark}, mark options={{fill={color}, solid}}{style}] "
+            f"coordinates {{{coords}}};"
+        )
     if with_legend:
         entries = ",\n  ".join(f"{{{label}}}" for _m, label, _c, _mk in SERIES)
         lines.append(f"\\legend{{\n  {entries}\n}}")
