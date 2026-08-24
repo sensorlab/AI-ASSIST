@@ -104,13 +104,26 @@ def _panel(title: str, filename: str, dataset_key: str, with_legend: bool) -> st
     if missing:
         raise KeyError(f"{title}: no coverage rows for {missing}")
     normalized = pivot / pivot.loc[1.0]
-    lo = max(0.0, float(normalized.to_numpy().min()) - 0.06)
-    hi = float(normalized.to_numpy().max()) + 0.06
+    # Anchor the limits to the 0.1 tick grid so every curve sits between labelled ticks.
+    # Deriving ticks from an unrounded range instead drops the lowest tick on whichever panel
+    # happens to start just above a multiple of 0.1, which is what hid BUS39's best curve.
+    import math
+
+    data_min = float(normalized.to_numpy().min())
+    data_max = float(normalized.to_numpy().max())
+    first_tick = math.floor(data_min * 10) / 10
+    last_tick = math.ceil(data_max * 10) / 10
+    lo = max(0.0, first_tick - 0.03)
+    hi = last_tick + 0.03
 
     # Anchoring the legend at x=1.12 in the first panel's axis coordinates centres it under the
     # pair, accounting for the group's horizontal separation.
     legend_pos = ", legend style={at={(1.12,-0.26)}, anchor=north}" if with_legend else ""
-    lines = [f"\\nextgroupplot[title={{{title}}}, ymin={lo:.2f}, ymax={hi:.2f}{legend_pos}]"]
+    # Explicit 0.1-step ticks. Left to itself pgfplots picks a 0.2 step on BUS39, which labels
+    # only 0.8 and 1.0 and leaves the best curve's lowest point below the lowest labelled tick.
+    ticks = [round(0.1 * k, 1) for k in range(round(first_tick * 10), round(last_tick * 10) + 1)]
+    tick_opt = ", ytick={" + ",".join(f"{v:.1f}" for v in ticks) + "}" if ticks else ""
+    lines = [f"\\nextgroupplot[title={{{title}}}, ymin={lo:.2f}, ymax={hi:.2f}{tick_opt}{legend_pos}]"]
     # The no-skill reference: nAURC is defined against the unsorted baseline, so 1.0 is the
     # line a diagnostic has to get below to be doing anything at all.
     lines.append(
