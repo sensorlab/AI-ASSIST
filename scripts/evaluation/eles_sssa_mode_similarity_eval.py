@@ -104,7 +104,7 @@ logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 # Evaluation artifacts don't belong at the repo root; SSSA is out of paper-sr's TSA-only scope
-# (DIRECTION.md Decisions), so both outputs go to tmp/ rather than paper-sr/data/
+# (DIRECTION.md Decisions), so both outputs go to tmp/ rather than results/data/
 # (2026-08-05 cleanup).
 TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
 TMP_DIR.mkdir(parents=True, exist_ok=True)

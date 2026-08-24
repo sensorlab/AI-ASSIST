@@ -39,10 +39,13 @@
     qarr/.style={arr, dashed, blue!50!black},
 ]
 
+% The topology filter carries no symbol: psi was defined nowhere in the text, and its
+% argument tau collides with the clearing-time threshold tau of Table 1 and the screening
+% analysis, which is a different quantity entirely.
 % ---------------- Online stage (bottom row) ----------------
 \node[box] (query) {Query pre-fault state\\(operational snapshot)};
 \node[proc, right=of query] (phi) {Same mapping\\$\phi(\cdot)$};
-\node[proc, right=of phi] (topo) {Exact topology\\filter $\psi(\tau)$};
+\node[proc, right=of phi] (topo) {Exact topology\\filter};
 \node[proc, right=of topo] (knn) {$K$-nearest-neighbor\\similarity search\\(Euclidean)};
 \node[proc, right=of knn] (agg) {Record retrieval $+$\\distance-weighted\\aggregation};
 \node[outbox, right=of agg] (dash) {CCT estimates,\\outcome distributions,\\neighborhood-support\\diagnostics};

@@ -39,7 +39,7 @@ from src.services.qdrant.config import get_qdrant_config
 logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
-# CSV summaries the paper actually consumes go to paper-sr/data/, not the repo root
+# CSV summaries the manuscript reports go to results/data/, not the repo root
 # (2026-08-05 cleanup).
 PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "results" / "data"
 PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)

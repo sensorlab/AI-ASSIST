@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 # Evaluation artifacts don't belong at the repo root: raw/intermediate (.joblib) go to tmp/,
-# CSV summaries the paper actually consumes go to paper-sr/data/ (2026-08-05 cleanup).
+# CSV summaries the manuscript reports go to results/data/ (tracked).
 # NOTE: this script is stale and silently broken against the current schema - see
 # paper-sr/EXPERIMENTS.md 2026-08-05 - it reads flat ps.location_weight_mass/
 # ps.cct_weighted_per_location attributes that predate the 2026-07-30 TSA report-model rework

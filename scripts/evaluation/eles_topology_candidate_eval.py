@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 # Evaluation artifacts don't belong at the repo root; this script is superseded by
 # eles_benchmark.py for eles/2026-06 (see its own docstring) and eles/2026-01 is out of
-# paper-sr's scope, so both outputs go to tmp/ rather than paper-sr/data/ (2026-08-05 cleanup).
+# the manuscript's scope, so both outputs go to tmp/ rather than results/data/.
 TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 REPORT_PATH: Final[Path] = TMP_DIR / "report-eles2026-01-candidate-topology.joblib"
