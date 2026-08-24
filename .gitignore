@@ -334,3 +334,8 @@ datasets/**/processed/**
 # here only so Claude Code sessions in this workspace can read/write the codebase and the
 # manuscript together. It is never tracked by this repo.
 /paper/
+
+# Leftovers from patch/merge application (foo.py.orig, foo.py.rej). Transient working
+# copies, never source.
+*.orig
+*.rej
