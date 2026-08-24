@@ -1,0 +1,16 @@
+quantity,value
+dataset,interscada/pl
+scaled_dimensionality,228
+min_slice_members,100
+n_query_states_used,65
+n_pairs_total,10400
+spearman_distance_vs_abs_dcct_mean,0.2981
+spearman_frac_positive,0.9231
+mean_abs_dcct_nearest_100_s,0.07224
+mean_abs_dcct_random_100_s,0.08316
+reduction_vs_random_pct,13.14
+index_fidelity_n_query_used,300
+index_fidelity_n_skipped_small_pool,0
+index_fidelity_mean_recall_at_k,0.9993
+index_fidelity_min_recall_at_k,0.8
+index_fidelity_k,5

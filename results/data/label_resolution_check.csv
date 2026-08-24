@@ -1,0 +1,8 @@
+comparison,mae_retrieval,mae_gradient_boosting,mean_paired_diff,ci_low,ci_high,diff_in_grid_steps,retrieval_lower
+raw,0.05073589831371473,0.055484705269014924,-0.004748806955300188,-0.0061100712229656545,-0.0033869937765471,-0.4748806955300188,True
+rounded to label grid,0.050739495651566484,0.05535512207048304,-0.004615626418916556,-0.005981916146432487,-0.0033134123957324103,-0.46156264189165563,True
+records where methods differ by < 1 grid step,,,0.29521759631169014,,,,
+records where predictions round to the same label,,,0.11794471027906814,,,,
+grid step (s),,,0.01,,,,
+n_records,,,229048.0,,,,
+n_states,,,3233.0,,,,

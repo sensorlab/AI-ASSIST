@@ -1,0 +1,17 @@
+quantity,value
+n_generator_flags_varying,123.0
+n_within_group_state_pairs,10697.0
+n_within_group_state_pairs_uncapped,11230.0
+frac_pairs_differing_in_commitment,0.9880340282322146
+median_flags_differing,11.0
+mean_flags_differing,12.098251846312051
+max_flags_differing,42.0
+n_matched_contingencies,376050.0
+mean_abs_dcct_commitment_identical,0.020452168563518915
+n_commitment_identical,6502.0
+mean_abs_dcct_commitment_differing,0.05839909835799409
+n_commitment_differing,369548.0
+spearman_flags_vs_abs_dcct,0.28081943429845213
+spearman_p_value,0.0
+max_pairs_per_group,400.0
+seed,42.0
