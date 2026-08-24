@@ -52,6 +52,7 @@ def _query_state(
     variant: str,
     exclude_self: bool,
     timeout_s: float | None,
+    max_states: int | None = None,
 ) -> QueryResult:
     payload: dict[str, Any] = {
         "variant": variant,
@@ -59,6 +60,8 @@ def _query_state(
     }
     if exclude_self:
         payload["exclude_uids"] = [str(state_id)]
+    if max_states is not None:
+        payload["max_states"] = max_states
 
     started = time.perf_counter()
     status_code: int | None = None
@@ -105,6 +108,7 @@ def run_latency_benchmark(
     variant: str,
     exclude_self: bool,
     timeout_s: float | None,
+    max_states: int | None = None,
 ) -> list[QueryResult]:
     if n_samples <= 0:
         raise ValueError("`n_samples` must be greater than 0")
@@ -126,6 +130,7 @@ def run_latency_benchmark(
                 variant=variant,
                 exclude_self=exclude_self,
                 timeout_s=timeout_s,
+                max_states=max_states,
             )
             for state_id, state in samples
         ]
@@ -154,6 +159,7 @@ def print_summary(results: list[QueryResult], *, wall_time_s: float) -> None:
         print(f"latency_mean_s={mean(latencies):.6f}")
         print(f"latency_median_s={median(latencies):.6f}")
         print(f"latency_p95_s={_percentile(latencies, 0.95):.6f}")
+        print(f"latency_p99_s={_percentile(latencies, 0.99):.6f}")
         print(f"latency_max_s={max(latencies):.6f}")
 
     if failures:
@@ -172,6 +178,16 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--endpoint", default=API_ENDPOINT)
     parser.add_argument("--variant", default="1.0.0")
     parser.add_argument("--timeout-s", type=float, default=None)
+    parser.add_argument(
+        "--max-states",
+        type=int,
+        default=None,
+        help=(
+            "StateRequest.max_states for each request. Left unset the service uses its own "
+            "default. Worth sweeping on the SSSA route, whose cross-state mode matching is "
+            "roughly quadratic in retrieved rows - the reason max_states is capped at 500."
+        ),
+    )
     parser.add_argument(
         "--include-self",
         action="store_true",
@@ -200,6 +216,7 @@ def main() -> None:
         variant=args.variant,
         exclude_self=not args.include_self,
         timeout_s=args.timeout_s,
+        max_states=args.max_states,
     )
     print_summary(results, wall_time_s=time.perf_counter() - started)
 
