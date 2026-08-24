@@ -101,9 +101,22 @@ def main() -> None:
     right = [
         "\\nextgroupplot[title={Span against group size}, xlabel={Calendar span},"
         " ylabel={States in group}, ymode=log, ymin=1.6, ymax=90,"
-        " ytick={2,5,10,20,50}, yticklabels={2,5,10,20,50}, legend style={at={(0.93,0.94)}, anchor=north east}]",
+        " ytick={2,5,10,20,50}, yticklabels={2,5,10,20,50},"
+        # pgfplots draws two marks in the legend image for an only-marks plot. At the enlarged
+        # swatch size the two blue dots merge into one blob while the triangles stay separate,
+        # so the two rows disagree. One mark per row is unambiguous for a scatter legend.
+        " legend image code/.code={\\draw[#1] plot coordinates {(0.15cm,0cm)};},"
+        " legend style={at={(0.04,0.94)}, anchor=north west, fill=white,"
+        # Top left, not top right: the cluster rises diagonally, so the upper left is the only
+        # empty corner. On the right the legend either had points showing through it, reading
+        # as extra legend marks, or sliced one in half once it was given a fill.
+        " fill opacity=0.92, text opacity=1, draw=none}]",
         rf"\addplot[gray!65, dashed, line width=0.7pt, mark=none, forget plot] coordinates {{({record_days:.4g},1.6) ({record_days:.4g},90)}};",
-        "\\addplot[only marks, mark=*, mark size=0.9pt, color=okabeBlue, opacity=0.45] coordinates {"
+        # legend image post style affects only the legend swatch: at the plotted size of 0.9pt
+        # and 45% opacity the dot is almost invisible beside the vermillion triangle, while the
+        # points themselves need to stay small and semi-transparent to show density.
+        "\\addplot[only marks, mark=*, mark size=0.9pt, color=okabeBlue, opacity=0.45,"
+        " legend image post style={mark size=2.1pt, opacity=1}] coordinates {"
         + _coords(small["span"], small["n_states"], ".0f")
         + "};",
         "\\addplot[only marks, mark=triangle*, mark size=1.9pt, color=okabeVermillion] coordinates {"
