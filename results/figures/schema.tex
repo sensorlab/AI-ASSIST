@@ -71,14 +71,16 @@
 
 \draw[arr] (inputs) -- (sim);
 \draw[arr] (sim) -- (prep);
+% Drawn before the labelled arrows below: this dashed run crosses the feature-vectors
+% label, and TikZ paints in order, so drawing it later put the line over the label's fill.
+% Same mapping reused online (constructed offline, applied to queries)
+\draw[arr, dashed, gray] ([xshift=-10mm]prep.south) -- ++(0,-5mm)
+    -| (phi.north);
+
 \draw[arr] (prep.south) -- (index.north)
     node[lab, pos=0.18, left=1mm] {feature vectors $z_i$};
 \draw[arr] (prep.east) -| (records.north)
     node[lab, pos=0.25, above] {records};
-
-% Same mapping reused online (constructed offline, applied to queries)
-\draw[arr, dashed, gray] ([xshift=-10mm]prep.south) -- ++(0,-5mm)
-    -| (phi.north);
 
 % Stage labels
 \node[lab, anchor=south west] at ([yshift=1mm]inputs.north west)
