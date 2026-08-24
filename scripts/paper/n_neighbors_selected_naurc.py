@@ -48,7 +48,7 @@ os.environ["TOPOLOGY_VARIANT"] = "lines_only"
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_DIR))
-sys.path.insert(0, str(PROJECT_DIR / "scripts" / "service"))
+sys.path.insert(0, str(PROJECT_DIR / "scripts" / "evaluation"))
 
 from bootstrap_risk_coverage_selected import (  # noqa: E402
     METRIC_SETS,

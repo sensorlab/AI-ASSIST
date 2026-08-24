@@ -43,7 +43,7 @@ PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 # ps.cct_weighted_per_location attributes that predate the 2026-07-30 TSA report-model rework
 # and no longer exist, and it's superseded by full_deoracled_bound.py's results anyway.
 TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
-PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
+PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "results" / "data"
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 BUS39_PATH: Final[Path] = TMP_DIR / "report-service-group-kfold.joblib"

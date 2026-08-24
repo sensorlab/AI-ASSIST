@@ -65,7 +65,7 @@ TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
 # Raw archive is the only persistent location for ELES state timestamps, needed by the
 # optional temporal-exclusion control (ELES_TEMPORAL_EXCLUSION_HOURS).
 RAW_ZIP: Final[Path] = PROJECT_DIR / "datasets" / "eles" / "2026-06" / "raw" / "Podatki_DSA.zip"
-PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
+PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "results" / "data"
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
