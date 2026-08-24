@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
 TMP_DIR.mkdir(parents=True, exist_ok=True)
-# Deliberately not paper-sr/data. FSA is out of scope for the Scientific Reports manuscript
+# Deliberately not results/data. FSA is out of scope for the Scientific Reports manuscript
 # (CLAUDE.md: "Analysis: TSA (CCT) only"), so these outputs are project-report material and
 # belong in tmp/ with the other non-paper artifacts, not among the paper's evidence CSVs.
 
