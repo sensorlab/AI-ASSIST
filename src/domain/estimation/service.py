@@ -397,7 +397,7 @@ def _ensure_finite(name: str, values: np.ndarray, *, crit_gen: str) -> None:
 
 
 # Candidate pool size for _match_sssa_modes' combined-rank re-ranking (cosine-rank +
-# eigenvalue-rank), matching the value validated in scripts/service/eles_sssa_mode_similarity_eval.py.
+# eigenvalue-rank), matching the value validated in scripts/evaluation/eles_sssa_mode_similarity_eval.py.
 _SSSA_MATCH_CANDIDATES = 50
 
 
@@ -405,7 +405,7 @@ def _rank_along_rows(values: np.ndarray) -> np.ndarray:
     """Rank each row's entries ascending (0 = smallest) - used to combine cosine-rank and
     eigenvalue-rank without letting their very different scales (cosine distance ~1e-4,
     eigenvalue distance ~1-10) dominate a raw sum. Same approach as
-    scripts/service/eles_sssa_mode_similarity_eval.py's _rank_along_rows."""
+    scripts/evaluation/eles_sssa_mode_similarity_eval.py's _rank_along_rows."""
     order = np.argsort(values, axis=1, kind="stable")
     ranks = np.empty_like(order)
     rows = np.arange(values.shape[0])[:, None]
@@ -1043,7 +1043,7 @@ class EstimationService:
         """For every distinct (state, mode_id) mode in the currently retrieved SSSA neighbor
         set, finds its single best cross-state counterpart by participation-vector cosine
         similarity + eigenvalue-proximity tiebreak (combined rank) - the strategy validated
-        in scripts/service/eles_sssa_mode_similarity_eval.py (see
+        in scripts/evaluation/eles_sssa_mode_similarity_eval.py (see
         datasets/eles/2026-06/README.md's "SSSA Mode Similarity" section: 0.2%/7.3% bad-match
         rate on eles/2026-06/eles/2026-01, vs 3.4%/11.9% for cosine-only). Computed fresh per
         query over just the retrieved neighbor set (order 1e3 modes, not the full corpus) -

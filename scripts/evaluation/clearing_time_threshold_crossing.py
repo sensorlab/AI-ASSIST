@@ -32,7 +32,7 @@ reads those per-record deoracled artifacts instead of benchmark.py's oracle-cond
 report, so both coverage and screening reflect only information available before the fault.
 
 Run from repository root:
-    uv run python scripts/service/clearing_time_threshold_crossing.py
+    uv run python scripts/evaluation/clearing_time_threshold_crossing.py
 """
 
 from __future__ import annotations

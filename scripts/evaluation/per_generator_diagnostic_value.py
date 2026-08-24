@@ -15,8 +15,8 @@ this reads - dataset-parameterized (2026-08-06) via --dataset, same convention a
 bootstrap_risk_coverage.py.
 
 Run from repository root:
-    uv run python scripts/service/per_generator_diagnostic_value.py --dataset bus39
-    uv run python scripts/service/per_generator_diagnostic_value.py --dataset eles/2026-06
+    uv run python scripts/evaluation/per_generator_diagnostic_value.py --dataset bus39
+    uv run python scripts/evaluation/per_generator_diagnostic_value.py --dataset eles/2026-06
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from typing import Final
 
 import pandas as pd
 
-from scripts.service.bootstrap_risk_coverage import (
+from scripts.evaluation.bootstrap_risk_coverage import (
     COVERAGES,
     METRICS,
     _dataset_safe_name,

@@ -13,8 +13,8 @@ but that no longer holds - ELES's own report-service-group-kfold-*.joblib is gen
 locally by benchmark.py same as BUS39's, so both are covered via --dataset.
 
 Run from repository root:
-    uv run python scripts/service/bootstrap_risk_coverage.py --dataset bus39
-    uv run python scripts/service/bootstrap_risk_coverage.py --dataset eles/2026-06
+    uv run python scripts/evaluation/bootstrap_risk_coverage.py --dataset bus39
+    uv run python scripts/evaluation/bootstrap_risk_coverage.py --dataset eles/2026-06
 """
 
 from __future__ import annotations

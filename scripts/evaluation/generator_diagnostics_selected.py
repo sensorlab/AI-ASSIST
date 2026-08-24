@@ -1,7 +1,7 @@
 """Retrieval-support diagnostics for BUS39 under the *selected* (non-oracle) generator,
 not the recorded true one - paper-sr issue raised by Codex review (ai2ai.md, 2026-08-09):
 Table 2's diagnostics (nAURC per candidate diagnostic) were computed from
-scripts/service/benchmark.py's per-record reports, which select the report for the recorded
+scripts/evaluation/benchmark.py's per-record reports, which select the report for the recorded
 true critical generator (`outputs_by_crit_gen.get(crit_gen_true)`). That is the same
 oracle-conditioning already disclosed for Table 1's oracle row - appropriate for studying
 the oracle-vs-selected contrast there, but Table 2's diagnostics are advertised as
@@ -20,7 +20,7 @@ Runs the real service in-process, in parallel across worker *processes*, same ra
 generator_deoracled_bound.py (each worker builds its own EstimationService once).
 
 Run from the repository root:
-    uv run python scripts/service/generator_diagnostics_selected.py [limit_per_fold] [n_jobs]
+    uv run python scripts/evaluation/generator_diagnostics_selected.py [limit_per_fold] [n_jobs]
 """
 
 from __future__ import annotations

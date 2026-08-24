@@ -7,11 +7,11 @@ in Section 4.5).
 Uses the new n_unique_states diagnostic (src/domain/estimation/models.py::Stats,
 src/domain/estimation/service.py) alongside the existing n_eff/neighborhood_compactness on
 a coarse BUS39 subsample, following the same subsampling convention as
-scripts/service/alpha_k_sweep.py (300 of one GroupKFold fold's held-out states, seed 42) -
+scripts/evaluation/alpha_k_sweep.py (300 of one GroupKFold fold's held-out states, seed 42) -
 a full leave-one-group-out pass is not needed to characterize this relationship.
 
 Run from repository root:
-    DATASET_NAME=bus39 QDRANT_URL=":memory:" uv run python scripts/service/false_confidence_check.py
+    DATASET_NAME=bus39 QDRANT_URL=":memory:" uv run python scripts/evaluation/false_confidence_check.py
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ os.environ.setdefault("QDRANT_URL", ":memory:")
 import numpy as np
 import pandas as pd
 
-from scripts.service.benchmark import normalize_label
+from scripts.evaluation.benchmark import normalize_label
 from src.benchmarking import group_k_fold_test_groups
 from src.config.logging import configure_logging
 from src.config.settings import get_app_settings

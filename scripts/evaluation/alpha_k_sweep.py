@@ -5,7 +5,7 @@ external Qdrant needed. Restricted to a subset of GroupKFold folds to keep runti
 this is a sensitivity check, not a full benchmark replacement.
 
 Run from repository root:
-    DATASET_NAME=bus39 QDRANT_URL=":memory:" uv run python scripts/service/alpha_k_sweep.py
+    DATASET_NAME=bus39 QDRANT_URL=":memory:" uv run python scripts/evaluation/alpha_k_sweep.py
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from scripts.service.benchmark import normalize_label
+from scripts.evaluation.benchmark import normalize_label
 from src.benchmarking import group_k_fold_test_groups, regression_metrics
 from src.config.logging import configure_logging
 from src.config.settings import get_app_settings
@@ -78,7 +78,7 @@ def _evaluate_point(
     alpha: float,
 ) -> pd.DataFrame:
     """Run one (K, alpha) point over every state in `query_state_ids` (the sampled subset
-    actually queried), matching scripts/service/benchmark.py::_process_state's
+    actually queried), matching scripts/evaluation/benchmark.py::_process_state's
     crit_gen/location matching logic, but in-process (no HTTP) and with configurable K/alpha.
     `fold_exclusion` is the FULL held-out fold (not just the sample) and is what's excluded
     from retrieval for every query, to preserve correct GroupKFold leakage semantics

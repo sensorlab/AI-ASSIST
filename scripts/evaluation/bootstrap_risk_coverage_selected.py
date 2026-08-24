@@ -29,8 +29,8 @@ rows once the common mask is applied upstream):
   differ; report each on its own record/state count, never blended with "main".
 
 Run from the repository root:
-    uv run python scripts/service/bootstrap_risk_coverage_selected.py --dataset bus39
-    uv run python scripts/service/bootstrap_risk_coverage_selected.py --dataset eles/2026-06
+    uv run python scripts/evaluation/bootstrap_risk_coverage_selected.py --dataset bus39
+    uv run python scripts/evaluation/bootstrap_risk_coverage_selected.py --dataset eles/2026-06
 """
 
 from __future__ import annotations

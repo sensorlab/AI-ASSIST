@@ -16,7 +16,7 @@ Levels, per dataset:
     fully_deoracled_screening_min - neither known, worst-case (min) across all pairs
 
 Run from the repository root:
-    uv run python scripts/service/bootstrap_deoracling_ci.py
+    uv run python scripts/evaluation/bootstrap_deoracling_ci.py
 """
 
 from __future__ import annotations

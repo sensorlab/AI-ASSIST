@@ -9,7 +9,7 @@ overstates the operational penalty.
 This compares the committed leave-one-state-out run against a causal run produced by
 
     DATASET_NAME=eles/2026-06 TOPOLOGY_VARIANT=lines_only ELES_CAUSAL_LAG_HOURS=L \\
-        uv run python scripts/service/eles_generator_diagnostics_selected.py 0 <n_jobs>
+        uv run python scripts/evaluation/eles_generator_diagnostics_selected.py 0 <n_jobs>
 
 in which a query may use only states recorded at or before its own timestamp minus L, never
 including itself. Both arms are compared on the records covered in both, so the accuracy

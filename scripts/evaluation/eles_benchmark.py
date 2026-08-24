@@ -1,29 +1,31 @@
-"""Evaluate a candidate topology definition for eles/2026-01 against the one currently in
-production (datasets/eles/2026-01/processed/topology_cols.json).
+"""Production-path leave-one-group-out benchmark for an eles/* dataset.
 
-Investigation trigger: the production topology_cols.json (254 columns, ELES's own
-PowerFactory "Lines"+"Loads" dictionary match) turns out to be constant across every
-record in this dataset - it collapses the entire dataset into a single topology_id, which
-means exact-topology retrieval is currently a no-op for eles/2026-01, not a genuine filter.
-Real topology variation lives in the ~512 line columns the dictionary excludes (mostly
-foreign/neighboring-grid elements by naming) plus the ~123 generator columns (already
-known to be too noisy per the dataset README).
+Unlike scripts/evaluation/eles_topology_candidate_eval.py (exploratory: hand-rolled its own
+EstimationService construction with a hardcoded candidate topology column set, run against
+eles/2026-01 before the eles/2026-06 + config-selectable-variant decision was made), this
+script goes through the real production entry point, build_estimation_service(), which now
+respects DATASET_NAME and TOPOLOGY_VARIANT (see src/services/qdrant/config.py and
+datasets/eles/2026-06/README.md's "Topology Variants" section). Supersedes that script for
+any further eles benchmark reruns.
 
-Candidate definition tested here: ALL oserv_Lne* columns (Slovenian + foreign, i.e. do NOT
-restrict to the dictionary-matched subset), EXCLUDING oserv_Gen* (generators) - this gave a
-much healthier group-size distribution in exploratory analysis (1,790 groups, 76% of
-records have >=1 same-topology neighbor, max group 38) versus either extreme (254-col
-dictionary subset: 1 group; full 1072-col set: ~95% singleton).
+Uses an embedded (:memory:) Qdrant instance rather than a live API server, for the same
+reason the exploratory script did: no external services needed, and local-mode brute-force
+search is fast enough at this dataset's scale (~4,400 states) to run a full leave-one-group-
+out pass in-session - true under a real (non-degenerate) topology filter, which restricts
+each query to a small same-topology subset. Under a variant whose filter is a no-op (e.g.
+slovenia_only on the current data batch - see the README), every query aggregates over the
+full ~4,400-state pool instead, which is far slower per query, not just a bigger loop; set
+ELES_BENCHMARK_SAMPLE_STATES to a state count (e.g. 300) to subsample which states are used
+as queries (retrieval still searches the full population - only the query side is sampled),
+keeping runtime tractable for topology-variant comparisons. Off by default so full-population
+runs used for paper numbers (e.g. lines_only) stay exactly reproducible.
 
-This script does NOT modify datasets/eles/2026-01/processed/topology_cols.json - it builds
-its own EstimationService variant in-process with the candidate columns, evaluates
-leave-one-group-out (mirroring scripts/service/benchmark.py::analyzer/_process_state, but
-via direct Python calls against an embedded (:memory:) Qdrant instead of HTTP), and writes
-a separate report + risk-coverage CSV for side-by-side comparison against the existing
-production-topology report (report-2026-06-10-eles.joblib / data/risk_coverage_eles2026-01.csv).
+Run from repository root, e.g.:
+    DATASET_NAME=eles/2026-06 TOPOLOGY_VARIANT=lines_only QDRANT_URL=":memory:" \\
+        uv run python scripts/evaluation/eles_benchmark.py
 
-Run from repository root:
-    uv run python scripts/service/eles_topology_candidate_eval.py
+    DATASET_NAME=eles/2026-06 TOPOLOGY_VARIANT=slovenia_only QDRANT_URL=":memory:" \\
+        ELES_BENCHMARK_SAMPLE_STATES=300 uv run python scripts/evaluation/eles_benchmark.py
 """
 
 from __future__ import annotations
@@ -33,78 +35,42 @@ import math
 import os
 import time
 from pathlib import Path
-from typing import Any, Final, cast
+from typing import Any, Final
 
-os.environ.setdefault("DATASET_NAME", "eles/2026-01")
 os.environ.setdefault("QDRANT_URL", ":memory:")
 
 import joblib
 import numpy as np
 import pandas as pd
 
-from scripts.service.benchmark import normalize_label
+from scripts.evaluation.benchmark import normalize_label
 from src.config.logging import configure_logging
 from src.config.settings import get_app_settings
-from src.domain.estimation.service import (
-    EstimationService,
-    _dataset_paths,
-    _make_scaler_for_dataset,
-)
-from src.services.qdrant.client import create_qdrant_client
+from src.domain.estimation.service import EstimationService, _dataset_paths, build_estimation_service
 from src.services.qdrant.config import get_qdrant_config
-from src.services.qdrant.repository import DatabaseQdrant
 from src.services.sqlite_store import SqliteRecordStore
 
 logger = logging.getLogger(__name__)
 
 PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
-# Evaluation artifacts don't belong at the repo root; this script is superseded by
-# eles_benchmark.py for eles/2026-06 (see its own docstring) and eles/2026-01 is out of
-# paper-sr's scope, so both outputs go to tmp/ rather than paper-sr/data/ (2026-08-05 cleanup).
+# Evaluation artifacts don't belong at the repo root: raw/intermediate (.joblib) go to tmp/,
+# CSV summaries the paper actually consumes go to paper-sr/data/ (2026-08-05 cleanup).
 TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
+PAPER_DATA_DIR: Final[Path] = PROJECT_DIR / "paper-sr" / "data"
 TMP_DIR.mkdir(parents=True, exist_ok=True)
-REPORT_PATH: Final[Path] = TMP_DIR / "report-eles2026-01-candidate-topology.joblib"
-RISK_COVERAGE_PATH: Final[Path] = TMP_DIR / "risk_coverage_eles2026-01-candidate-topology.csv"
-
+PAPER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 COVERAGES: Final[tuple[float, ...]] = (1.0, 0.95, 0.9, 0.8, 0.7, 0.5)
-
-
-def _build_candidate_service() -> EstimationService:
-    """Mirrors build_estimation_service() (src/domain/estimation/service.py) exactly,
-    except the topology column set is the candidate (all Lne, no Gen) rather than
-    whatever's in topology_cols.json - no production file is read or written."""
-    config = get_qdrant_config()
-    app_settings = get_app_settings()
-    path_lf_dataset, path_tsa_dataset, _ = _dataset_paths(app_settings.data_dir, config.dataset_name)
-
-    lf = pd.read_pickle(path_lf_dataset)
-    tsa = SqliteRecordStore(path_tsa_dataset, table="tsa")
-
-    scaler = _make_scaler_for_dataset(config.dataset_name)
-    lf_scaled = cast(pd.DataFrame, scaler.fit_transform(lf))
-
-    candidate_raw_cols = [c for c in lf.columns if c.lower().startswith("oserv_lne")]
-    logger.info(f"Candidate topology definition: {len(candidate_raw_cols)} oserv_Lne* columns (no generators)")
-
-    feature_map: dict[str, str] = {}
-    for col in candidate_raw_cols:
-        candidates = [c for c in lf_scaled.columns if c == col or c.startswith(col + "_")]
-        if len(candidates) != 1:
-            raise ValueError(f"cannot map topology col {col!r}: found {len(candidates)} candidates {candidates[:5]}")
-        feature_map[col] = candidates[0]
-
-    client = create_qdrant_client(config)
-    db = DatabaseQdrant(
-        client=client,
-        collection_name=f"{config.collection_name}-candidate-topology",
-        subset_topology_cols=feature_map.values(),
-        populate_lock_path=config.populate_lock_path,
-        populate_lock_timeout_seconds=config.populate_lock_timeout_seconds,
-        use_population_lock=False,
-    )
-    db.fit(lf_scaled, force=False)
-
-    return EstimationService(columns=list(lf.columns), scaler=scaler, tsa=tsa, db=db, fsa=None, sssa=None)
+# Optional query-side subsampling (env ELES_BENCHMARK_SAMPLE_STATES), for topology-variant
+# comparisons where the full leave-one-group-out pass is intractable - e.g. under a variant
+# whose topology filter is a no-op, every query is scored against the full reference pool
+# instead of a small same-topology subset, which is far more expensive per query (more
+# distinct Crit_gen groups to aggregate), not just a bigger loop. Off by default so the
+# full-population runs already used for paper numbers (e.g. lines_only) are unaffected and
+# stay exactly reproducible. Same SAMPLE_SEED convention as scripts/evaluation/alpha_k_sweep.py.
+# Overridable via ELES_BENCHMARK_SAMPLE_SEED for multi-seed robustness checks (e.g. repeating
+# the topology with/without-filter ablation across several draws); default 42 matches the
+# seed used for the paper's reported ablation numbers.
+SAMPLE_SEED: Final[int] = int(os.environ.get("ELES_BENCHMARK_SAMPLE_SEED", "42"))
 
 
 def _process_state(
@@ -113,7 +79,7 @@ def _process_state(
     state: pd.Series,
     tsa_subset: pd.DataFrame,
 ) -> list[dict[str, Any]]:
-    """In-process equivalent of scripts/service/benchmark.py::_process_state (leave-one-
+    """In-process equivalent of scripts/evaluation/benchmark.py::_process_state (leave-one-
     group-out variant: exclude only the query state itself, matching analyzer())."""
     state_id_norm = normalize_label(state_id)
     state_dict = {k: (None if pd.isna(v) else v) for k, v in state.items()}
@@ -201,18 +167,42 @@ def main() -> None:
     configure_logging()
     config = get_qdrant_config()
     app_settings = get_app_settings()
-    lf_path, tsa_path, _ = _dataset_paths(app_settings.data_dir, config.dataset_name)
-    logger.info(f"Dataset: lf={lf_path}, tsa={tsa_path}")
+    lf_path, tsa_path, topo_path = _dataset_paths(
+        app_settings.data_dir, config.dataset_name, topology_variant=config.topology_variant
+    )
+    logger.info(f"Dataset: lf={lf_path}, tsa={tsa_path}, topology_cols={topo_path}")
+    logger.info(f"Collection: {config.collection_name} (topology_variant={config.topology_variant!r})")
+
+    safe_dataset = config.dataset_name.replace("/", "-")
+    sample_states = os.environ.get("ELES_BENCHMARK_SAMPLE_STATES")
+    variant_tag = config.topology_variant
+    if sample_states:
+        variant_tag = f"{config.topology_variant}-sample{sample_states}"
+        if SAMPLE_SEED != 42:
+            variant_tag = f"{variant_tag}-seed{SAMPLE_SEED}"
+    report_path = TMP_DIR / f"report-{safe_dataset}-{variant_tag}.joblib"
+    risk_coverage_path = PAPER_DATA_DIR / f"risk_coverage_{safe_dataset}_{variant_tag}.csv"
 
     lf = pd.read_pickle(lf_path)
+    if sample_states:
+        original_n = len(lf)
+        n = min(int(sample_states), original_n)
+        rng = np.random.default_rng(SAMPLE_SEED)
+        sampled_ids = set(rng.choice(sorted(lf.index.astype(str)), size=n, replace=False))
+        lf = lf.loc[lf.index.astype(str).isin(sampled_ids)]
+        logger.info(f"Query-side subsample: {n} of {original_n} states as queries (seed={SAMPLE_SEED})")
+
     tsa_store = SqliteRecordStore(tsa_path, table="tsa")
     tsa = tsa_store.fetch(list(lf.index.astype(str)))
     tsa_by_state = {str(state_id): subset.copy() for state_id, subset in tsa.groupby("state", observed=True)}
 
-    logger.info("Building candidate-topology EstimationService (embedded Qdrant)...")
+    logger.info("Building EstimationService via build_estimation_service() (embedded Qdrant)...")
     t0 = time.monotonic()
-    service = _build_candidate_service()
-    logger.info(f"Service ready in {time.monotonic() - t0:.1f}s")
+    service = build_estimation_service()
+    logger.info(
+        f"Service ready in {time.monotonic() - t0:.1f}s "
+        f"({len(service.db.significant_topology_cols)} significant topology columns)"
+    )
 
     all_rows: list[dict[str, Any]] = []
     t0 = time.monotonic()
@@ -233,8 +223,8 @@ def main() -> None:
         f"Coverage: has_location_prediction={coverage_has_location:.4f}, has_any_prediction={coverage_has_global:.4f}"
     )
 
-    joblib.dump(all_rows, REPORT_PATH)
-    logger.info(f"Saved raw per-record report to {REPORT_PATH}")
+    joblib.dump(all_rows, report_path)
+    logger.info(f"Saved raw per-record report to {report_path}")
 
     _df = df.dropna(subset=["cct_weighted_per_location"]).copy()
     _df["err"] = (_df["cct_true"] - _df["cct_weighted_per_location"]).abs()
@@ -256,8 +246,8 @@ def main() -> None:
     }
     out = [_risk_coverage(_df, metric, higher) for metric, higher in metrics.items()]
     rc = pd.concat(out, ignore_index=True)
-    rc.to_csv(RISK_COVERAGE_PATH, index=False)
-    logger.info(f"Saved risk-coverage CSV to {RISK_COVERAGE_PATH}")
+    rc.to_csv(risk_coverage_path, index=False)
+    logger.info(f"Saved risk-coverage CSV to {risk_coverage_path}")
     print(rc.to_string(index=False))
 
 

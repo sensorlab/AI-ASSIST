@@ -12,7 +12,7 @@ ratio and frequency in Hz are what an engineer reads.
 
 Pairing cannot use mode_id, which is a state-local identifier explicitly not comparable
 across states (datasets/eles/*/README.md, SSSA section). It uses the participation-vector
-cosine similarity validated in scripts/service/eles_sssa_mode_similarity_eval.py, which found
+cosine similarity validated in scripts/evaluation/eles_sssa_mode_similarity_eval.py, which found
 a median eigenvalue distance of 0.064 for cosine-nearest cross-state pairs against a 2.22
 random-pairing baseline. One vector per mode, one entry per generator, valued by that
 generator's overall participation magnitude - the max across the dataset's ParMag_* columns -
@@ -26,7 +26,7 @@ picking an arbitrary mode would have cost, so the gap is the part retrieval earn
 Run from the repository root, e.g.:
 
     DATASET_NAME=eles/2026-06 TOPOLOGY_VARIANT=lines_only QDRANT_URL=":memory:" \\
-        uv run python scripts/service/sssa_benchmark.py [n_states]
+        uv run python scripts/evaluation/sssa_benchmark.py [n_states]
 
 bus39 and interscada/* carry no SSSA data; the service raises NotImplementedError and the API
 returns HTTP 501, which this script reports rather than treating as a failure.
