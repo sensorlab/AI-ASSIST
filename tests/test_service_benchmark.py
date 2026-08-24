@@ -247,6 +247,47 @@ class MlBenchmarkTests(unittest.TestCase):
         self.assertIn("Terminal", X.columns)
         self.assertIn("Type", X.columns)
 
+    def test_record_table_can_match_retrieval_location_only_input_budget(self):
+        lf = pd.DataFrame({"feature": [1.0, 2.0]}, index=["s1", "s2"])
+        tsa = pd.DataFrame(
+            {
+                "state": ["s1", "s2"],
+                "experiment": [0, 1],
+                "Crit_gen": ["g1", "g2"],
+                "Location": ["l1", "l2"],
+                "Terminal": ["t1", "t2"],
+                "Type": [0, 1],
+                "CCT": [1.0, 2.0],
+            }
+        )
+
+        X, _, _ = ml_benchmark.build_record_table(
+            lf,
+            tsa,
+            scaler=_IdentityScaler(),
+            contingency_cols=("Location",),
+        )
+        self.assertEqual(list(X.columns), ["feature", "Location"])
+
+    def test_group_cv_returns_one_keyed_prediction_per_record(self):
+        X = pd.DataFrame({"feature": range(6), "Location": ["l1", "l2"] * 3})
+        y = pd.Series([1.0, 1.1, 2.0, 2.1, 3.0, 3.1])
+        groups = pd.Series(["s1", "s1", "s2", "s2", "s3", "s3"])
+
+        results, predictions = ml_benchmark.run_group_cv(
+            X,
+            y,
+            groups,
+            n_splits=3,
+            model_names=set(),
+        )
+
+        self.assertEqual(set(results["model"]), {"location_median"})
+        self.assertEqual(len(predictions), len(X))
+        ordered = predictions.sort_values("record_position")
+        self.assertEqual(ordered["cct_true"].tolist(), y.tolist())
+        self.assertEqual(ordered["record_ordinal"].tolist(), [0, 1, 0, 1, 0, 1])
+
 
 if __name__ == "__main__":
     unittest.main()
