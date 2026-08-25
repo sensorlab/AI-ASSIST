@@ -1163,7 +1163,14 @@ class EstimationService:
                     mode_id=int(item["mode_id"]),
                     real_part=float(item["real_part"]),
                     imag_part=float(item["imag_part"]),
-                    metrics=self._transform_sssa_angles({m: float(item[m]) for m in metric_cols}),
+                    # Null metrics are dropped rather than coerced to 0.0: a null here means
+                    # the state variable does not exist for that machine (94.8% of
+                    # eles/2026-06 rows have no Psi1d at all), which is not the same claim as
+                    # a measured zero. A retrieved subset whose column is entirely null also
+                    # arrives as object dtype holding None, which float() rejects outright.
+                    metrics=self._transform_sssa_angles(
+                        {m: float(item[m]) for m in metric_cols if not pd.isna(item[m])}
+                    ),
                     matched_mode=mode_matches[(str(item["state"]), int(item["mode_id"]))],
                     distance=float(item["distance"]),
                 )

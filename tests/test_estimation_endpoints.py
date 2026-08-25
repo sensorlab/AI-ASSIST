@@ -121,6 +121,34 @@ def _service_with_sssa() -> EstimationService:
     )
 
 
+def _service_with_sssa_null_metrics() -> EstimationService:
+    """SSSA rows whose metric columns are entirely null, as eles/2026-06 routinely has.
+
+    ParMag_Psi2q is null for 96.7% of that dataset's rows because most machines have no
+    second q-axis damper, so a retrieved subset can easily contain none at all - pandas then
+    types the column as object holding None, which float() raises on.
+    """
+    tsa = pd.DataFrame({"state": ["s1"], "CCT": [1.0], "Location": ["L1"], "Crit_gen": ["G1"], "Terminal": ["T1"]})
+    sssa = pd.DataFrame(
+        {
+            "state": ["s1", "s2"],
+            "mode_id": [1, 1],
+            "generator": ["GenA", "GenA"],
+            "real_part": [-0.1, -0.3],
+            "imag_part": [5.0, 7.0],
+            "ObsMag": [0.10, 0.40],
+            "ParMag_Psi2q": [None, None],
+        }
+    )
+    return EstimationService(
+        columns=["x"],
+        scaler=_IdentityScaler(),
+        tsa=_FakeRecordStore(tsa),
+        db=_FakeDb(),
+        sssa=_FakeRecordStore(sssa),
+    )
+
+
 def _service_with_sssa_mode_shapes() -> EstimationService:
     """Dedicated fixture for matched_mode tests - unlike _service_with_sssa() above, this
     includes ParMag (participation magnitude) so cosine-similarity matching has real signal
@@ -487,6 +515,24 @@ class EstimationServiceEndpointTests(unittest.TestCase):
         self.assertIsNotNone(mode_s1_2.matched_mode)
         self.assertEqual(mode_s1_2.matched_mode.state, "s2")
         self.assertGreater(mode_s1_2.matched_mode.eigenvalue_distance, mode_s1_1.matched_mode.eigenvalue_distance)
+
+    def test_sssa_neighbors_survive_entirely_null_metric_columns(self):
+        """A metric column null across the whole retrieved subset must not abort the query.
+
+        This crashed a full-archive benchmark at state 370 of 4,393: pandas types such a
+        column as object holding None, and float(None) raises TypeError.
+        """
+        service = _service_with_sssa_null_metrics()
+
+        by_generator = service.estimate_sssa_by_generator({"x": 0.0}, exclude_uids=[])
+
+        neighbors = by_generator["GenA"]
+        self.assertTrue(neighbors)
+        for neighbor in neighbors:
+            # Present metrics survive; the null one is absent rather than silently zeroed,
+            # since "this machine has no Psi2q" is not the same claim as "Psi2q is 0.0".
+            self.assertIn("ObsMag", neighbor.metrics)
+            self.assertNotIn("ParMag_Psi2q", neighbor.metrics)
 
     def test_sssa_mode_match_is_none_without_a_second_state(self):
         tsa = pd.DataFrame({"state": ["s1"], "CCT": [1.0], "Location": ["L1"], "Crit_gen": ["G1"], "Terminal": ["T1"]})
