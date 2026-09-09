@@ -2,29 +2,29 @@
 
 ## Scope
 
-Leave-one-state-out evaluation of retrieval-based CCT estimation on the 780-state `interscada/pl` archive, run through the production service path (`build_estimation_service()`, embedded Qdrant, `DATASET_NAME=interscada/pl`). Two passes: `scripts/evaluation/eles_benchmark.py` for clearing-time accuracy and support diagnostics, `scripts/evaluation/crit_gen_confusion.py` for critical-generator identification. Every query excludes its own state from retrieval, and both scripts assert that exclusion held on every query; neither assertion fired across 2 x 780 queries.
+Leave-one-state-out evaluation of retrieval-based CCT estimation on the 761-state `interscada/pl` archive, run through the production service path (`build_estimation_service()`, embedded Qdrant, `DATASET_NAME=interscada/pl`). Two passes: `scripts/evaluation/eles_benchmark.py` for clearing-time accuracy and support diagnostics, `scripts/evaluation/crit_gen_confusion.py` for critical-generator identification. Every query excludes its own state from retrieval, and both scripts assert that exclusion held on every query; neither assertion fired across 2 x 761 queries.
 
 ## Data
 
-The v2 drop is a pure superset of the previous one. All 761 earlier states are present with byte-identical load-flow rows, and all 47,943 shared (state, experiment) records carry identical CCT, fault location and critical generator. One new batch, `SET_0925`, adds 19 states, `Point_no. 2` through `20`. Totals: **780 states, 63 fault locations, 49,140 records**. Column structure is unchanged: 216 load-flow features, 47 topology columns, critical generators on buses 30-39.
+The v2 drop is a pure superset of the previous one: all 761 raw states of the earlier drop are present with byte-identical load-flow rows, and every shared (state, experiment) record carries identical CCT, fault location and critical generator. One new batch, `SET_0925`, adds 19 states, `Point_no. 2` through `20`. Preparation then removes 19 duplicate states, 1,197 records, so the analysed archive is 761 states of which 18 come from the new batch. Totals: **761 states, 63 fault locations, 47,943 records**. Column structure is unchanged: 216 load-flow features, 47 topology columns, critical generators on buses 30-39.
 
-Two facts about the archive shape matter for reading everything below. All 780 states fall in a **single topology group**, so the exact-topology filter never restricts a query and never causes an abstention; this dataset cannot exhibit the coverage behaviour that dominates the ELES results. And **11.4% of records (5,613) are stable**, reaching the 500 ms simulation ceiling with no critical generator.
+Two facts about the archive shape matter for reading everything below. All 761 states fall in a **single topology group**, so the exact-topology filter never restricts a query and never causes an abstention; this dataset cannot exhibit the coverage behaviour that dominates the ELES results. And **11.5% of records (5,496) are stable**, reaching the 500 ms simulation ceiling with no critical generator.
 
 ## Coverage and accuracy
 
 | Quantity | Value |
 |---|---|
-| Records scored | 48,861 of 49,140 (**99.43%**) |
-| MAE | **0.01281 s** |
-| RMSE | 0.02167 s |
-| Median absolute error | 0.00708 s |
-| q90 / q95 / q99 | 0.03200 / 0.04452 / 0.07801 s |
-| Maximum absolute error | 0.40085 s |
-| Mean neighbours / n_eff | 44.9 / 10.3 |
+| Records scored | 47,635 of 47,943 (**99.36%**) |
+| MAE | **0.01358 s** |
+| RMSE | 0.02278 s |
+| Median absolute error | 0.00762 s |
+| q90 / q95 / q99 | 0.03387 / 0.04676 / 0.08097 s |
+| Maximum absolute error | 0.39634 s |
+| Mean neighbours / n_eff | 45.2 / 10.7 |
 
-Mean recorded CCT is 0.2965 s, so the MAE is **4.3% of the mean clearing time**. The 279 uncovered records (0.57%) are not topology abstentions, which are impossible here: they are locations where no retrieved state carried a candidate generator.
+Mean recorded CCT is 0.2960 s, so the MAE is **4.6% of the mean clearing time**. The 308 uncovered records (0.64%) are not topology abstentions, which are impossible here: they are locations where no retrieved state carried a candidate generator.
 
-Conditioning on the recorded fault location is doing most of the work. Falling back to the single most likely location instead answers 100% of records but at MAE 0.07220 s, **5.6 times worse**.
+Conditioning on the recorded fault location is doing most of the work. Falling back to the single most likely location instead answers 100% of records but at MAE 0.07265 s, **5.3 times worse**.
 
 ### Error distribution
 
@@ -32,14 +32,14 @@ A mean absolute error hides the shape that decides whether an estimator is usabl
 
 | Estimate | n | MAE | RMSE | q25 | q50 | q75 | q90 | q95 | q99 | q100 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| recorded location | 48,861 | 0.01281 | 0.02167 | 0.00196 | 0.00708 | 0.01727 | 0.03200 | 0.04452 | 0.07801 | **0.40085** |
-| most likely location | 49,140 | 0.07220 | 0.10961 | 0.01015 | 0.04181 | 0.10551 | 0.19372 | 0.25806 | 0.34182 | 0.44800 |
-| recorded, n_eff below median | 24,430 | 0.01375 | 0.02362 | 0.00227 | 0.00715 | 0.01850 | 0.03471 | 0.04720 | 0.08617 | 0.40085 |
-| recorded, n_eff at or above median | 24,431 | 0.01188 | 0.01952 | 0.00159 | 0.00701 | 0.01612 | 0.02924 | 0.04158 | 0.07170 | 0.35275 |
+| recorded location | 47,635 | 0.01358 | 0.02278 | 0.00218 | 0.00762 | 0.01834 | 0.03387 | 0.04676 | 0.08097 | **0.39634** |
+| most likely location | 47,943 | 0.07265 | 0.11013 | 0.01047 | 0.04200 | 0.10623 | 0.19549 | 0.25935 | 0.34204 | 0.44800 |
+| recorded, n_eff below median (6.0) | 23,817 | 0.01506 | 0.02521 | 0.00274 | 0.00825 | 0.02031 | 0.03721 | 0.04990 | 0.09350 | 0.32186 |
+| recorded, n_eff at or above median | 23,818 | 0.01211 | 0.02005 | 0.00154 | 0.00709 | 0.01646 | 0.03007 | 0.04261 | 0.07261 | 0.39634 |
 
-The distribution is heavily skewed: the median error of 7.1 ms is a little over half the mean, three quarters of records fall inside 17 ms, and the maximum is 0.401 s, **31 times the MAE**. This is a tight estimator with a thin tail of severe misses rather than a uniformly mediocre one, and the MAE alone conveys neither fact.
+The distribution is heavily skewed: the median error of 7.6 ms is a little over half the mean, three quarters of records fall inside 18 ms, and the maximum is 0.396 s, **29 times the MAE**. This is a tight estimator with a thin tail of severe misses rather than a uniformly mediocre one, and the MAE alone conveys neither fact.
 
-Splitting on effective sample size, the one support measure an operator could check before trusting an estimate, helps but does not explain the tail: thin support raises the MAE by 16% and the 90th percentile by 19%, while the worst case barely moves (0.401 s against 0.353 s).
+Splitting on effective sample size, the one support measure an operator could check before trusting an estimate, helps but does not explain the tail: thin support raises the MAE by 24% and the 90th percentile by 24%, and here the worst case moves the other way (0.322 s against 0.396 s), so the tail is not where thin support hurts.
 
 ## Support diagnostics
 
@@ -47,16 +47,16 @@ Each diagnostic sorts records from most to least trusted; the table gives MAE ov
 
 | Diagnostic | MAE, full | MAE, best 50% | Change |
 |---|---|---|---|
-| `cct_weighted_std` | 0.012705 | 0.007748 | **-39.0%** |
-| `distance_norm` | 0.012812 | 0.009171 | -28.4% |
-| `n_neighbors` | 0.012812 | 0.009980 | -22.1% |
-| `distance_min` | 0.012812 | 0.010749 | -16.1% |
-| `location_weight_mass` | 0.012812 | 0.011106 | -13.3% |
-| `n_eff` | 0.012812 | 0.011879 | -7.3% |
-| `distance_median` | 0.012812 | 0.013357 | +4.3% |
-| `distance_mean` | 0.012812 | 0.013483 | +5.2% |
-| `neighborhood_compactness` | 0.012705 | 0.014538 | **+14.4%** |
-| `distance_spread` | 0.012812 | 0.015355 | +19.8% |
+| `cct_weighted_std` | 0.013418 | 0.008445 | **-37.1%** |
+| `distance_norm` | 0.013584 | 0.009863 | -27.4% |
+| `n_neighbors` | 0.013584 | 0.010243 | -24.6% |
+| `distance_min` | 0.013584 | 0.011467 | -15.6% |
+| `location_weight_mass` | 0.013584 | 0.012072 | -11.1% |
+| `n_eff` | 0.013584 | 0.012109 | -10.9% |
+| `distance_median` | 0.013584 | 0.013863 | +2.1% |
+| `distance_mean` | 0.013584 | 0.013974 | +2.9% |
+| `neighborhood_compactness` | 0.013418 | 0.015545 | **+15.9%** |
+| `distance_spread` | 0.013584 | 0.016082 | +18.4% |
 
 Disagreement among retrieved outcomes (`cct_weighted_std`) is the only strong signal. Four diagnostics rank estimates **worse than not sorting at all**, `neighborhood_compactness` and `distance_spread` most clearly, so neither should be shown to an operator as a confidence measure on this archive.
 
@@ -66,28 +66,28 @@ At each record's recorded fault location, candidate generators are ranked by `cr
 
 | Quantity | Value |
 |---|---|
-| Top-1 accuracy | **78.22%** |
-| Top-3 accuracy | **94.85%** |
-| Top-1, unstable records only | 76.82% |
-| Top-1, stable records only | 89.04% |
-| Recorded generator absent from candidates | 0.57% |
-| Mean candidates per record | 5.82 |
+| Top-1 accuracy | **76.66%** |
+| Top-3 accuracy | **94.31%** |
+| Top-1, unstable records only | 75.09% |
+| Top-1, stable records only | 88.81% |
+| Recorded generator absent from candidates | 0.64% |
+| Mean candidates per record | 5.83 |
 
 ### Confusion matrix (rows recorded, columns predicted)
 
 |  | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | stable |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| **30** | 663 | 309 | 51 | 23 | 149 | 93 | 43 | 169 | 142 | 19 | 159 |
-| **31** | 67 | 7749 | 385 | 21 | 389 | 157 | 76 | 155 | 136 | 23 | 126 |
-| **32** | 27 | 793 | 1471 | 10 | 152 | 56 | 30 | 48 | 24 | 5 | 29 |
-| **33** | 23 | 28 | 13 | 520 | 209 | 165 | 36 | 25 | 7 | 6 | 0 |
-| **34** | 93 | 329 | 85 | 186 | 11941 | 299 | 195 | 173 | 63 | 13 | 137 |
-| **35** | 48 | 172 | 45 | 172 | 245 | 2021 | 330 | 94 | 37 | 12 | 40 |
-| **36** | 41 | 85 | 17 | 52 | 246 | 329 | 1897 | 35 | 23 | 5 | 30 |
-| **37** | 63 | 264 | 75 | 25 | 141 | 190 | 42 | 5170 | 109 | 23 | 194 |
-| **38** | 80 | 287 | 51 | 1 | 125 | 25 | 32 | 50 | 1738 | 7 | 124 |
-| **39** | 7 | 9 | 16 | 9 | 22 | 40 | 15 | 28 | 18 | 269 | 7 |
-| **stable** | 23 | 159 | 74 | 8 | 42 | 64 | 19 | 139 | 77 | 10 | 4998 |
+| **30** | 447 | 319 | 60 | 26 | 164 | 107 | 50 | 175 | 150 | 21 | 168 |
+| **31** | 71 | 7552 | 410 | 21 | 391 | 167 | 82 | 156 | 138 | 24 | 128 |
+| **32** | 36 | 824 | 1264 | 12 | 156 | 71 | 32 | 50 | 24 | 5 | 31 |
+| **33** | 25 | 33 | 15 | 449 | 214 | 179 | 38 | 24 | 7 | 6 | 1 |
+| **34** | 104 | 333 | 87 | 196 | 11766 | 309 | 201 | 177 | 62 | 14 | 145 |
+| **35** | 58 | 178 | 61 | 173 | 258 | 1749 | 353 | 97 | 41 | 13 | 39 |
+| **36** | 44 | 86 | 22 | 54 | 252 | 360 | 1725 | 37 | 24 | 7 | 35 |
+| **37** | 68 | 268 | 78 | 25 | 149 | 191 | 42 | 5074 | 108 | 25 | 197 |
+| **38** | 88 | 288 | 52 | 1 | 128 | 27 | 32 | 51 | 1612 | 8 | 135 |
+| **39** | 9 | 9 | 16 | 8 | 23 | 43 | 15 | 33 | 18 | 235 | 8 |
+| **stable** | 24 | 162 | 76 | 5 | 43 | 66 | 20 | 134 | 75 | 10 | 4881 |
 
 ### Confusion matrix, row-normalised (% of each recorded class)
 
@@ -95,45 +95,45 @@ Counts are hard to read when class support spans an order of magnitude, so the s
 
 |  | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | stable |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| **30** | **36.4** | 17.0 | 2.8 | 1.3 | 8.2 | 5.1 | 2.4 | 9.3 | 7.8 | 1.0 | 8.7 |
-| **31** | 0.7 | **83.5** | 4.1 | 0.2 | 4.2 | 1.7 | 0.8 | 1.7 | 1.5 | 0.2 | 1.4 |
-| **32** | 1.0 | 30.0 | **55.6** | 0.4 | 5.7 | 2.1 | 1.1 | 1.8 | 0.9 | 0.2 | 1.1 |
-| **33** | 2.2 | 2.7 | 1.3 | **50.4** | 20.3 | 16.0 | 3.5 | 2.4 | 0.7 | 0.6 | 0.0 |
-| **34** | 0.7 | 2.4 | 0.6 | 1.4 | **88.4** | 2.2 | 1.4 | 1.3 | 0.5 | 0.1 | 1.0 |
-| **35** | 1.5 | 5.3 | 1.4 | 5.3 | 7.6 | **62.8** | 10.3 | 2.9 | 1.2 | 0.4 | 1.2 |
-| **36** | 1.5 | 3.1 | 0.6 | 1.9 | 8.9 | 11.9 | **68.7** | 1.3 | 0.8 | 0.2 | 1.1 |
-| **37** | 1.0 | 4.2 | 1.2 | 0.4 | 2.2 | 3.0 | 0.7 | **82.1** | 1.7 | 0.4 | 3.1 |
-| **38** | 3.2 | 11.4 | 2.0 | 0.0 | 5.0 | 1.0 | 1.3 | 2.0 | **69.0** | 0.3 | 4.9 |
-| **39** | 1.6 | 2.0 | 3.6 | 2.0 | 5.0 | 9.1 | 3.4 | 6.4 | 4.1 | **61.1** | 1.6 |
-| **stable** | 0.4 | 2.8 | 1.3 | 0.1 | 0.7 | 1.1 | 0.3 | 2.5 | 1.4 | 0.2 | **89.0** |
+| **30** | **26.5** | 18.9 | 3.6 | 1.5 | 9.7 | 6.3 | 3.0 | 10.4 | 8.9 | 1.2 | 10.0 |
+| **31** | 0.8 | **82.6** | 4.5 | 0.2 | 4.3 | 1.8 | 0.9 | 1.7 | 1.5 | 0.3 | 1.4 |
+| **32** | 1.4 | 32.9 | **50.5** | 0.5 | 6.2 | 2.8 | 1.3 | 2.0 | 1.0 | 0.2 | 1.2 |
+| **33** | 2.5 | 3.3 | 1.5 | **45.3** | 21.6 | 18.1 | 3.8 | 2.4 | 0.7 | 0.6 | 0.1 |
+| **34** | 0.8 | 2.5 | 0.6 | 1.5 | **87.8** | 2.3 | 1.5 | 1.3 | 0.5 | 0.1 | 1.1 |
+| **35** | 1.9 | 5.9 | 2.0 | 5.7 | 8.5 | **57.9** | 11.7 | 3.2 | 1.4 | 0.4 | 1.3 |
+| **36** | 1.7 | 3.2 | 0.8 | 2.0 | 9.5 | 13.6 | **65.2** | 1.4 | 0.9 | 0.3 | 1.3 |
+| **37** | 1.1 | 4.3 | 1.2 | 0.4 | 2.4 | 3.1 | 0.7 | **81.5** | 1.7 | 0.4 | 3.2 |
+| **38** | 3.6 | 11.9 | 2.2 | 0.0 | 5.3 | 1.1 | 1.3 | 2.1 | **66.6** | 0.3 | 5.6 |
+| **39** | 2.2 | 2.2 | 3.8 | 1.9 | 5.5 | 10.3 | 3.6 | 7.9 | 4.3 | **56.4** | 1.9 |
+| **stable** | 0.4 | 2.9 | 1.4 | 0.1 | 0.8 | 1.2 | 0.4 | 2.4 | 1.4 | 0.2 | **88.8** |
 
-Normalising exposes structure the counts hide. Bus 32 is misread as bus 31 in **30.0%** of its records, a specific confusion rather than diffuse error, and bus 33 leaks **20.3%** to bus 34 and **16.0%** to bus 35. Bus 30 stays the weak class at 36.4%, spread across nearly every other label rather than concentrated anywhere.
+Normalising exposes structure the counts hide. Bus 32 is misread as bus 31 in **32.9%** of its records, a specific confusion rather than diffuse error, and bus 33 leaks **21.6%** to bus 34 and **18.1%** to bus 35. Bus 30 stays the weak class at 26.5%, spread across nearly every other label rather than concentrated anywhere.
 
 ### Per class
 
 | Class | Support | Recall | Precision | **F1** | Top-3 |
 |---|---|---|---|---|---|
-| 30 | 1,820 | 0.364 | 0.584 | **0.449** | 0.822 |
-| 31 | 9,284 | 0.835 | 0.761 | 0.796 | 0.970 |
-| 32 | 2,645 | 0.556 | 0.644 | 0.597 | 0.894 |
-| 33 | 1,032 | 0.504 | 0.506 | **0.505** | 0.815 |
-| 34 | 13,514 | 0.884 | 0.874 | **0.879** | 0.984 |
-| 35 | 3,216 | 0.628 | 0.588 | 0.607 | 0.909 |
-| 36 | 2,760 | 0.687 | 0.699 | 0.693 | 0.908 |
-| 37 | 6,296 | 0.821 | 0.850 | 0.835 | 0.957 |
-| 38 | 2,520 | 0.690 | 0.732 | 0.710 | 0.898 |
-| 39 | 440 | 0.611 | 0.686 | 0.647 | 0.793 |
-| stable | 5,613 | 0.890 | 0.855 | 0.873 | 0.987 |
+| 30 | 1,687 | 0.265 | 0.459 | **0.336** | 0.794 |
+| 31 | 9,140 | 0.826 | 0.751 | 0.787 | 0.967 |
+| 32 | 2,505 | 0.505 | 0.590 | 0.544 | 0.879 |
+| 33 | 991 | 0.453 | 0.463 | **0.458** | 0.790 |
+| 34 | 13,394 | 0.879 | 0.869 | **0.874** | 0.983 |
+| 35 | 3,020 | 0.579 | 0.535 | 0.556 | 0.894 |
+| 36 | 2,646 | 0.652 | 0.666 | 0.659 | 0.896 |
+| 37 | 6,225 | 0.815 | 0.845 | 0.830 | 0.952 |
+| 38 | 2,422 | 0.666 | 0.714 | 0.689 | 0.890 |
+| 39 | 417 | 0.564 | 0.639 | 0.599 | 0.758 |
+| stable | 5,496 | 0.888 | 0.846 | 0.867 | 0.987 |
 
-**Macro F1 0.690, weighted F1 0.779**, against a top-1 accuracy of 0.782. The gap between the two averages is the imbalance: accuracy and weighted F1 are carried by the three largest classes, while macro F1 counts bus 30 (0.449) and bus 33 (0.505) as equal partners and drops nine points. Report macro when the question is whether every generator is identifiable, weighted when it is how often the answer is right.
+**Macro F1 0.654, weighted F1 0.762**, against a top-1 accuracy of 0.767. The gap between the two averages is the imbalance: accuracy and weighted F1 are carried by the three largest classes, while macro F1 counts bus 30 (0.336) and bus 33 (0.458) as equal partners and drops eleven points. Report macro when the question is whether every generator is identifiable, weighted when it is how often the answer is right.
 
-Accuracy tracks support: the three largest classes (34, 31, 37) reach 0.82 to 0.88 recall while bus 30, with 1,820 records, reaches 0.364 and is confused with almost every other generator. Bus 33 is the weakest by precision (0.506), and its errors run overwhelmingly to buses 34 and 35. The confusion is not symmetric: bus 32 is mistaken for 31 in 793 records while 31 is mistaken for 32 in 385, so the ranking has a standing bias toward the larger class.
+Accuracy tracks support: the three largest classes (34, 31, 37) reach 0.82 to 0.88 recall while bus 30, with 1,687 records, reaches 0.265 and is confused with almost every other generator. Bus 33 is the weakest by precision (0.463), and its errors run overwhelmingly to buses 34 and 35. The confusion is not symmetric: bus 32 is mistaken for 31 in 824 records while 31 is mistaken for 32 in 410, so the ranking has a standing bias toward the larger class.
 
-The top-1 versus top-3 gap (78.2% against 94.9%) says the recorded generator is nearly always among the leading candidates even when it is not first, which matters if the output is a shortlist for an operator rather than a single answer.
+The top-1 versus top-3 gap (76.7% against 94.3%) says the recorded generator is nearly always among the leading candidates even when it is not first, which matters if the output is a shortlist for an operator rather than a single answer.
 
 ### Event level, one row per fault
 
-Records are events on this dataset: a fault names a single critical generator, so `(state, location)` appears exactly once and the ratio is 1.00 rows per event. The event-level and per-record figures are therefore the same number, and set-membership accuracy, which asks whether the predicted machine is among those that lost synchronism, equals top-1 accuracy at **78.22%**.
+Records are events on this dataset: a fault names a single critical generator, so `(state, location)` appears exactly once and the ratio is 1.00 rows per event. The event-level and per-record figures are therefore the same number, and set-membership accuracy, which asks whether the predicted machine is among those that lost synchronism, equals top-1 accuracy at **76.66%**.
 
 This is stated only because interscada/fr differs: a fault there takes a group of machines out of step, the transform explodes the group into one row per machine, and its per-record and event-level figures come apart by a factor of 2.57.
 
@@ -143,17 +143,17 @@ The operational question a screening pass asks is not "how accurate is each esti
 
 | Measure | Value |
 |---|---|
-| Exact location match | 65.64% |
-| Chosen location attains the minimum recorded CCT | **83.59%** |
-| Regret within one 10 ms label step | 87.69% |
-| Mean / median regret | 0.00572 s / **0.00000 s** |
-| 95th percentile / maximum regret | 0.03500 s / 0.29500 s |
-| MAE on the state's minimum CCT | 0.01075 s |
-| States with a tied minimum | 168 of 780 |
+| Exact location match | 64.52% |
+| Chosen location attains the minimum recorded CCT | **82.13%** |
+| Regret within one 10 ms label step | 86.07% |
+| Mean / median regret | 0.00663 s / **0.00000 s** |
+| 95th percentile / maximum regret | 0.03600 s / 0.29500 s |
+| MAE on the state's minimum CCT | 0.01107 s |
+| States with a tied minimum | 162 of 761 |
 
-Exact name matching understates performance. CCT labels sit on a 10 ms grid and 168 states have several locations tied at the minimum, so picking either of two equally severe locations is scored as a miss. By the measure that reflects the decision, whether the chosen location actually carries the worst clearing time, retrieval is right in **83.6%** of states and the median regret is exactly zero.
+Exact name matching understates performance. CCT labels sit on a 10 ms grid and 162 states have several locations tied at the minimum, so picking either of two equally severe locations is scored as a miss. By the measure that reflects the decision, whether the chosen location actually carries the worst clearing time, retrieval is right in **82.1%** of states and the median regret is exactly zero.
 
-Estimating the minimum itself is easier than the average record: MAE 0.01075 s against 0.01281 s overall. The tail is real, though. One state, `SET_0221__Point_no.___10`, gives up 0.295 s of clearing time, meaning screening was pointed at a location far from the true worst.
+Estimating the minimum itself is easier than the average record: MAE 0.01107 s against 0.01358 s overall. The tail is real, though. One state, `SET_0221__Point_no.___10`, gives up 0.295 s of clearing time, meaning screening was pointed at a location far from the true worst.
 
 ### Top-1 and top-3 screening
 
@@ -161,10 +161,10 @@ Ordering a state's 63 locations by estimated severity and simulating the first k
 
 | k | Worst location found | Regret mean | q50 | q90 | q95 | q99 | q100 |
 |---|---|---|---|---|---|---|---|
-| 1 | 83.72% | 0.00571 | 0 | 0.019 | 0.035 | 0.10121 | 0.295 |
-| **3** | **97.56%** | 0.00054 | 0 | **0** | **0** | 0.02821 | 0.041 |
+| 1 | 82.13% | 0.00663 | 0 | 0.022 | 0.036 | 0.10320 | 0.295 |
+| **3** | **96.85%** | 0.00066 | 0 | **0** | **0** | 0.02840 | 0.041 |
 
-Three simulations out of 63, **4.8% of a full contingency screen**, reach a genuinely worst-case contingency in 97.6% of states. The regret quantiles are the stronger argument: at k=3 regret is exactly zero through the 95th percentile and the worst case falls from 0.295 s to 0.041 s, so the third simulation buys tail protection rather than average accuracy.
+Three simulations out of 63, **4.8% of a full contingency screen**, reach a genuinely worst-case contingency in 96.8% of states. The regret quantiles are the stronger argument: at k=3 regret is exactly zero through the 95th percentile and the worst case falls from 0.295 s to 0.041 s, so the third simulation buys tail protection rather than average accuracy.
 
 Larger k is not reported because it stops discriminating. A state holds 63 locations, but a recorded generator's candidate set averages under six, so a top-5 rate would mostly measure that a candidate list exists.
 
@@ -172,11 +172,11 @@ Top-k answers "is the worst one found", not "are all the unsafe ones found", and
 
 | Threshold | recall@1 | recall@3 | States affected |
 |---|---|---|---|
-| CCT < 0.10 s | 0.491 | 0.718 | 409 |
-| CCT < 0.15 s | 0.278 | 0.492 | 533 |
-| CCT < 0.20 s | 0.140 | 0.359 | 630 |
+| CCT < 0.10 s | 0.490 | 0.719 | 401 |
+| CCT < 0.15 s | 0.276 | 0.490 | 523 |
+| CCT < 0.20 s | 0.138 | 0.356 | 617 |
 
-At 0.20 s, 630 of 780 states hold at least one unsafe location and usually several, so three picks recover 35.9% of them. That is arithmetic rather than a ranking failure: if the requirement is to screen out every unsafe contingency, the risk-coverage and referral-load view applies, not top-k.
+At 0.20 s, 617 of 761 states hold at least one unsafe location and usually several, so three picks recover 35.6% of them. That is arithmetic rather than a ranking failure: if the requirement is to screen out every unsafe contingency, the risk-coverage and referral-load view applies, not top-k.
 
 ### Location likelihood is not a fault-location prediction
 
@@ -184,13 +184,13 @@ The service also ranks locations by `location_likelihood`, that is by retrieved 
 
 | Measure | Value |
 |---|---|
-| Recorded location ranks first | 9.94% |
-| Recorded location in top 3 | 24.62% |
-| Mean locations competing | 48.11 |
-| Mean winning score | 0.0972 |
-| Most likely location equals the estimated most critical location | **5.90%** |
+| Recorded location ranks first | 9.68% |
+| Recorded location in top 3 | 23.84% |
+| Mean locations competing | 48.36 |
+| Mean winning score | 0.0958 |
+| Most likely location equals the estimated most critical location | **5.91%** |
 
-Against a uniform baseline of about 2% over 48 competing locations, ranking first 9.9% of the time is better than chance and still far too weak to present as a fault-location prediction. The last row is the one that matters operationally: the most likely location and the most critical location coincide in under 6% of states, because similarity says which locations have well-supported neighbours, not which fault is severe. This is why the fallback estimate built on the most likely location carries 5.6 times the error, and why the fault location has to be supplied as an input rather than inferred.
+Against a uniform baseline of about 2% over 48 competing locations, ranking first 9.7% of the time is better than chance and still far too weak to present as a fault-location prediction. The last row is the one that matters operationally: the most likely location and the most critical location coincide in under 6% of states, because similarity says which locations have well-supported neighbours, not which fault is severe. This is why the fallback estimate built on the most likely location carries 5.6 times the error, and why the fault location has to be supplied as an input rather than inferred.
 
 ## Are the new states different from the rest?
 
@@ -200,41 +200,43 @@ Nearest-neighbour distance to the 761 existing states, over 169 standardised con
 
 | | median | mean | max |
 |---|---|---|---|
-| new (19) | **10.31** | 8.60 | 12.17 |
-| existing (761) | 1.40 | 1.40 | 6.87 |
+| new (18) | **10.38** | 9.07 | 12.18 |
+| existing (743) | 1.43 | 1.49 | 6.82 |
 
-Mann-Whitney U, one-sided, **p = 1.1e-9**, and **17 of 19 new states lie beyond the 95th percentile** of the existing states' own nearest-neighbour distances. Per feature, **57 of 137 continuous features (41.6%) shift significantly** after Holm correction, several at Cohen's d near 2.7, concentrated in loads 15 and 16 and the 345 kV bus voltage angles.
+Mann-Whitney U, one-sided, **p = 4.1e-11**, and **17 of 18 new states lie beyond the 95th percentile** of the existing states' own nearest-neighbour distances. Per feature, **57 of 137 continuous features (41.6%) shift significantly** after Holm correction, several at Cohen's d near 2.7, concentrated in loads 15 and 16 and the 345 kV bus voltage angles.
 
-The batch is a **trajectory, not a cloud**. Distance to the nearest existing state grows monotonically with the point number: Point 2 at 0.000, Point 3 at 0.671, Point 4 at 3.69, rising to 11.86 at Point 20. It begins exactly on an existing operating point and walks away from the archive. With the higher mean loading (3,679 MW against 3,293 MW) this reads as a deliberate stress sweep rather than a fresh random sample.
+The batch is a **trajectory, not a cloud**. Distance to the nearest existing state grows monotonically with the point number: Point 3 at 0.671, Point 4 at 3.69, rising to 11.86 at Point 20. Point 2 sat at exactly 0.000 and has been removed as a duplicate. It begins exactly on an existing operating point and walks away from the archive. With the higher mean loading (3,679 MW against 3,293 MW) this reads as a deliberate stress sweep rather than a fresh random sample.
 
 **One new state duplicates an existing one exactly.** `SET_0925__Point_no.____2` matches `SET_0025__Point_no.____2` on all 216 load-flow columns and all 63 CCT and critical-generator outcomes. Either the sweep re-simulated its starting point deliberately, or a state was exported twice; worth confirming with the data provider.
 
-Retrieval support on the new states is unambiguously thinner, while the accuracy penalty is directionally consistent but underpowered at n = 19:
+Retrieval support on the new states is unambiguously thinner, while the accuracy penalty is directionally consistent but underpowered at n = 18:
 
 | | new | existing | p |
 |---|---|---|---|
-| Per-state MAE | 0.01587 | 0.01276 | 0.117 |
-| `distance_min` | 3.16 | 1.86 | 0.0001 |
-| `n_neighbors` | 22.2 | 45.6 | <0.0001 |
-| `n_eff` | 4.42 | 10.49 | <0.0001 |
-| Coverage | 98.83% | 99.45% | - |
+| Per-state MAE | 0.01604 | 0.01355 | 0.249 |
+| `distance_min` | 3.32 | 1.98 | <0.0001 |
+| `n_neighbors` | 20.4 | 45.9 | <0.0001 |
+| `n_eff` | 3.91 | 10.87 | <0.0001 |
+| Coverage | 98.77% | 99.37% | - |
 
-Roughly half the neighbours at nearly double the distance, for 24% higher error that does not reach significance. Support degrades before conditional accuracy does, which is the same ordering the ELES analysis reports.
-
-A useful negative detail: the duplicated state's own MAE is 0.0135 s, marginally **worse** than the dataset mean, despite having a distance-zero twin with identical outcomes in the reference pool. The estimate is a kernel-weighted mean over about 45 neighbours, so a perfect match contributes one unit of weight and is then diluted. Retrieval does not behave like a 1-nearest-neighbour lookup here.
+Under half the neighbours at nearly double the distance, for 18% higher error that does not reach significance. Support degrades before conditional accuracy does, which is the same ordering the ELES analysis reports.
 
 ## Duplicate states
 
-**19 duplicate pairs, 38 states, are present and were not removed.** Each pair is byte-identical across all 216 load-flow columns, and all 19 pairs carry identical outcomes: the same CCT and critical generator at every one of the 63 fault locations. They are twelve `Point_no. 2` through `7` states across the `SET_0013`, `SET_0021`, `SET_0113`, `SET_0121`, `SET_0213` and `SET_0221` families, plus `SET_0925__Point_no.____2`, which duplicates `SET_0025__Point_no.____2` from the earlier drop.
+**19 duplicate pairs, 38 states, were removed at preparation**, leaving 761 of the drop's 780. Each pair is byte-identical across all 216 load-flow columns, verified on the raw CSV before any parsing, and their outcomes match too: the same CCT and critical generator at every one of the 63 fault locations. The pairs are `Point_no. 2` through `7` of `SET_0013` repeating `SET_0021`, `SET_0113` repeating `SET_0121`, `SET_0213` repeating `SET_0221`, and `SET_0925__Point_no.____2` repeating `SET_0025__Point_no.____2` from the earlier drop. One pair's raw rows differ only in whitespace inside the generator label, `37 [BUS37   13.8]` against `37 [BUS37 13.8]`, which the regex parse discards.
 
-This is a known inconsistency with interscada/fr, whose transform removes exact duplicates at preparation. Every figure in this report was computed with the duplicates in place, which means leave-one-state-out was not fully leak-free for 38 of 780 states: excluding the query by identity leaves its twin, holding the same answer, in the reference library. The affected share is 2.4% of states here against 16.8% on the fr drop before deduplication, so the distortion is far smaller, but it is not zero and the numbers should be read as marginally optimistic until the dataset is deduplicated and the pass rerun.
+Joining the topology columns changes nothing: all 780 raw states share one switching configuration, so the whole-row and grid-values-only duplicate counts are both 19.
+
+Removing them at preparation rather than at evaluation is deliberate, and matches interscada/fr. A duplicate defeats leave-one-state-out, which excludes the query by identity and so leaves its twin, holding the same answer, in the reference library. It also distorts deployment, because each copy votes separately in the kernel-weighted mean.
+
+An earlier version of this report was computed with the duplicates in place. Removing them moved the headline figures by roughly the amount their share of the archive suggests, 2.4% of states: MAE 0.01281 to 0.01358 s, top-1 identification 78.22% to 76.66%, macro F1 0.690 to 0.654, and the worst-location hit rate 83.59% to 82.13%. Every figure moved in the same direction, which is what a removed leak looks like.
 
 ## Limitations
 
 - **Single topology group.** The exact-topology filter is inert on this archive, so nothing here tests abstention behaviour, and coverage figures are not comparable with ELES.
-- **Leave-one-state-out excludes only the query state.** Sweep points within a `SET` family are plausibly adjacent operating points and remain retrievable. There are no timestamps, so no temporal exclusion control is possible; the 0.01281 s MAE should be read as an upper bound on accuracy under near-duplicate support.
-- **Preprocessing is transductive.** The scaler is fitted and the index populated over all 780 states including the query. Exclusion applies to retrieval, not to preprocessing.
-- **Class imbalance.** Generator classes span 440 to 13,514 records, so the aggregate top-1 rate is dominated by the largest classes; read the per-class table alongside it.
+- **Leave-one-state-out excludes only the query state.** Sweep points within a `SET` family are plausibly adjacent operating points and remain retrievable. There are no timestamps, so no temporal exclusion control is possible; the 0.01358 s MAE should be read as an upper bound on accuracy under near-duplicate support. Exact duplicates are removed at preparation, so what remains is genuinely similar rather than identical states.
+- **Preprocessing is transductive.** The scaler is fitted and the index populated over all 761 states including the query. Exclusion applies to retrieval, not to preprocessing.
+- **Class imbalance.** Generator classes span 417 to 13,394 records, so the aggregate top-1 rate is dominated by the largest classes; read the per-class table alongside it.
 - **The variant tag `lines_only` in artifact names is an artefact** of the `TOPOLOGY_VARIANT` default. This dataset has one topology column set and it was used correctly; only the filename is misleading.
 
 ## Reproduction

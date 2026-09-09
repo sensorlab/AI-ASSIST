@@ -126,10 +126,34 @@ def main(in_dir: Path, out_dir: Path):
 
     logger.info("Prepare LF dataset ...")
     lf = prepare_lf_dataset(in_dir / "_power_flow_info_updt.csv")
-    lf.to_pickle(out_dir / "lf.pkl")
 
     logger.info("Prepare TSA dataset ...")
     tsa = prepare_tsa_dataset(in_dir / "_CCT_results_names_ok.csv")
+
+    # Exact duplicate scenarios, matching datasets/interscada/fr/transform.py. The v2 drop stores
+    # 19 pairs as byte-identical rows: Point_no. 2 through 7 of SET_0013 repeat SET_0021, 0113
+    # repeats 0121, 0213 repeats 0221, and SET_0925's Point_no. 2 repeats SET_0025's from the
+    # earlier drop. Verified on the raw CSV before any parsing, and their outcomes match too, at
+    # the same CCT and critical generator for all 63 fault locations (the one pair whose raw rows
+    # differ does so only in whitespace inside the generator label, "37 [BUS37   13.8]" against
+    # "37 [BUS37 13.8]", which the regex parse discards).
+    #
+    # A duplicate defeats leave-one-state-out, which excludes the query by identity and so leaves
+    # its twin holding the same answer in the reference library, and it also skews deployment,
+    # since each copy votes separately in the kernel-weighted mean. Joining the topology columns
+    # changes nothing here: all 780 states share one switching configuration, so the whole-row and
+    # grid-values-only counts are both 19.
+    before = len(lf)
+    lf = lf[~lf.duplicated(keep="first")]
+    if before != len(lf):
+        logger.info(f"Dropping {before - len(lf)} duplicate LF states, {len(lf)} distinct states retained")
+
+    prev = len(tsa)
+    tsa = tsa[tsa["state"].astype(str).isin(set(lf.index.astype(str)))]
+    if prev != len(tsa):
+        logger.info(f"Dropped {prev - len(tsa)} TSA rows belonging to removed states")
+
+    lf.to_pickle(out_dir / "lf.pkl")
     tsa.to_pickle(out_dir / "tsa.pkl")
     write_sqlite_table(tsa, out_dir.parent / "processed" / "tsa.db", table="tsa")
 
