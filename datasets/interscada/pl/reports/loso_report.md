@@ -10,7 +10,7 @@ The v2 drop is a pure superset of the previous one. All 761 earlier states are p
 
 Two facts about the archive shape matter for reading everything below. All 780 states fall in a **single topology group**, so the exact-topology filter never restricts a query and never causes an abstention; this dataset cannot exhibit the coverage behaviour that dominates the ELES results. And **11.4% of records (5,613) are stable**, reaching the 500 ms simulation ceiling with no critical generator.
 
-## Clearing-time accuracy
+## Coverage and accuracy
 
 | Quantity | Value |
 |---|---|
@@ -131,6 +131,12 @@ Accuracy tracks support: the three largest classes (34, 31, 37) reach 0.82 to 0.
 
 The top-1 versus top-3 gap (78.2% against 94.9%) says the recorded generator is nearly always among the leading candidates even when it is not first, which matters if the output is a shortlist for an operator rather than a single answer.
 
+### Event level, one row per fault
+
+Records are events on this dataset: a fault names a single critical generator, so `(state, location)` appears exactly once and the ratio is 1.00 rows per event. The event-level and per-record figures are therefore the same number, and set-membership accuracy, which asks whether the predicted machine is among those that lost synchronism, equals top-1 accuracy at **78.22%**.
+
+This is stated only because interscada/fr differs: a fault there takes a group of machines out of step, the transform explodes the group into one row per machine, and its per-record and event-level figures come apart by a factor of 2.57.
+
 ## Most critical location
 
 The operational question a screening pass asks is not "how accurate is each estimate" but "which contingency do I simulate first". The most critical location is the one with the lowest recorded CCT. This is a different quantity from `location_likelihood`, which ranks locations by retrieved weight mass, that is by which location the query most resembles rather than which is most severe; `cct_weighted_global` is built from the most likely location and cannot stand in for this.
@@ -216,6 +222,12 @@ Retrieval support on the new states is unambiguously thinner, while the accuracy
 Roughly half the neighbours at nearly double the distance, for 24% higher error that does not reach significance. Support degrades before conditional accuracy does, which is the same ordering the ELES analysis reports.
 
 A useful negative detail: the duplicated state's own MAE is 0.0135 s, marginally **worse** than the dataset mean, despite having a distance-zero twin with identical outcomes in the reference pool. The estimate is a kernel-weighted mean over about 45 neighbours, so a perfect match contributes one unit of weight and is then diluted. Retrieval does not behave like a 1-nearest-neighbour lookup here.
+
+## Duplicate states
+
+**19 duplicate pairs, 38 states, are present and were not removed.** Each pair is byte-identical across all 216 load-flow columns, and all 19 pairs carry identical outcomes: the same CCT and critical generator at every one of the 63 fault locations. They are twelve `Point_no. 2` through `7` states across the `SET_0013`, `SET_0021`, `SET_0113`, `SET_0121`, `SET_0213` and `SET_0221` families, plus `SET_0925__Point_no.____2`, which duplicates `SET_0025__Point_no.____2` from the earlier drop.
+
+This is a known inconsistency with interscada/fr, whose transform removes exact duplicates at preparation. Every figure in this report was computed with the duplicates in place, which means leave-one-state-out was not fully leak-free for 38 of 780 states: excluding the query by identity leaves its twin, holding the same answer, in the reference library. The affected share is 2.4% of states here against 16.8% on the fr drop before deduplication, so the distortion is far smaller, but it is not zero and the numbers should be read as marginally optimistic until the dataset is deduplicated and the pass rerun.
 
 ## Limitations
 

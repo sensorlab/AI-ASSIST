@@ -22,6 +22,8 @@ The 431 line-status flags partition the archive into **10 topology groups** of 2
 
 Coverage is effectively complete: **29,892 of 29,895 records (99.99%)** receive a location-specific estimate, and every record receives some estimate. The topology filter never abstains here because no group is a singleton, unlike the 55-state pilot where it answered 3.66% of records.
 
+### Error distribution
+
 | Estimate | n | MAE | RMSE | q25 | q50 | q75 | q90 | q95 | q99 | q100 |
 |---|---|---|---|---|---|---|---|---|---|---|
 | recorded location | 29,892 | **0.01407** | 0.02652 | 0.00167 | 0.00633 | 0.01614 | 0.03625 | 0.05555 | 0.11442 | **0.26306** |
@@ -54,35 +56,6 @@ MAE over all records, and over the best-ranked half by each diagnostic.
 
 Disagreement among retrieved outcomes is again the only strong signal, as on interscada/pl and BUS39. Five diagnostics rank estimates worse than not sorting at all, so none of them should be shown as a confidence measure on this archive.
 
-## Most critical location
-
-The most critical location is the one with the lowest recorded CCT, the contingency a screening pass should simulate first. Ranking a state's locations by estimated severity:
-
-| k | Worst location found | Regret mean | q50 | q90 | q95 | q99 | q100 |
-|---|---|---|---|---|---|---|---|
-| 1 | **99.92%** | 0.00002 | 0 | 0 | 0 | 0 | 0.02344 |
-| 3 | **100.00%** | 0.00000 | 0 | 0 | 0 | 0 | 0.00000 |
-
-Exact location match is 99.77%, and the two figures differ only because two states have several locations tied at the minimum. MAE on the state's minimum CCT is 0.00631 s, better than the overall 0.01407 s. At k=3 the worst case over all 1,304 states is zero regret.
-
-This is the strongest result in the report and it is not an artefact of duplication, which was removed at preparation.
-
-Screening recall is nearly vacuous on this archive: only **27 of 1,304 states** hold any location below 0.20 s, so recall is 1.0 at k=1 over those 27. With a mean CCT of 0.658 s and a 1.0 s ceiling, this drop contains few severe contingencies at all.
-
-## Location likelihood is not a fault-location prediction
-
-`location_likelihood` ranks locations by retrieved weight mass within a generator group, that is by which location the query resembles, not which is severe.
-
-| Measure | Value |
-|---|---|
-| Recorded location ranks first | 30.29% |
-| Recorded location in top 3 | 70.19% |
-| Mean locations competing | 5.94 |
-| Mean winning score | 0.3024 |
-| **Most likely location equals the estimated most critical location** | **0.00%** |
-
-Against a uniform baseline near 17% over 5.94 competing locations, ranking first 30% of the time beats chance but is far too weak to present as a prediction. The last row is categorical: across all 1,304 states the most likely location is *never* the estimated most critical one. That is why the fallback estimate built on the most likely location carries nearly nine times the error, and why fault location must be supplied as an input.
-
 ## Critical-generator identification
 
 At each record's recorded fault location, candidate generators are ranked by `crit_gen_likelihood` and the top-ranked one is compared with the recorded outcome. On this dataset the per-record form of that question is close to meaningless, for two structural reasons, so the event-level result below is the one to read.
@@ -90,6 +63,48 @@ At each record's recorded fault location, candidate generators are ranked by `cr
 **Per-record accuracy is capped at 39.0% by construction.** One prediction is made per `(state, location)`, but the explode gives that event up to five rows, so at most one row can be scored correct. The ceiling is the event count over the row count, 11,653 / 29,895 = 38.98%. Measured per-record top-1 is **38.31%**, which is 98.3% of the achievable maximum, and per-record top-3 is 83.10%.
 
 **Machines within a group are indistinguishable by construction.** The exploded rows of one event carry identical retrieval support, so the ranking among `PALUE7PALUET1`, `T3` and `T4` is a tie broken by insertion order. The model therefore only ever predicts `PALUE7PALUET1`, `FLAMA7FLAMAT1` or `stable`, and `T3`, `T4`, `PENLY7PENLYT1` and `PENLY7PENLYT2` are never named. Per-class F1 inherits that: macro 0.337 and weighted 0.253, with four classes at exactly 0. Those numbers measure the tie-break, not the estimator, and should not be compared with interscada/pl's macro 0.690.
+
+### Confusion matrix (rows recorded, columns predicted)
+
+Reported for symmetry with the interscada/pl report, but read the event-level table below instead: this one is shaped by the tie-break, not by the estimator.
+
+|  | FLAMA7FLAMAT1 | PALUE7PALUET1 | stable |
+|---|---|---|---|
+| **FLAMA7FLAMAT1** | **1,301** | 0 | 0 |
+| **PALUE7PALUET1** | 0 | **6,589** | 108 |
+| **PALUE7PALUET3** | 0 | 6,589 | 108 |
+| **PALUE7PALUET4** | 0 | 6,589 | 108 |
+| **PENLY7PENLYT1** | 0 | 2,412 | 12 |
+| **PENLY7PENLYT2** | 0 | 2,412 | 12 |
+| **stable** | 0 | 93 | **3,562** |
+
+### Confusion matrix, row-normalised (% of each recorded class)
+
+|  | FLAMA7FLAMAT1 | PALUE7PALUET1 | stable |
+|---|---|---|---|
+| **FLAMA7FLAMAT1** | **100.0** | 0.0 | 0.0 |
+| **PALUE7PALUET1** | 0.0 | **98.4** | 1.6 |
+| **PALUE7PALUET3** | 0.0 | 98.4 | 1.6 |
+| **PALUE7PALUET4** | 0.0 | 98.4 | 1.6 |
+| **PENLY7PENLYT1** | 0.0 | 99.5 | 0.5 |
+| **PENLY7PENLYT2** | 0.0 | 99.5 | 0.5 |
+| **stable** | 0.0 | 2.5 | **97.5** |
+
+Three of the seven rows are identical, which is the tie-break made visible: the exploded rows of one event carry the same support, so whichever machine sorts first absorbs the whole group.
+
+### Per class
+
+| Class | Support | Recall | Precision | F1 |
+|---|---|---|---|---|
+| FLAMA7FLAMAT1 | 1,301 | 1.000 | 1.000 | **1.000** |
+| PALUE7PALUET1 | 6,697 | 0.984 | 0.267 | 0.420 |
+| PALUE7PALUET3 | 6,697 | 0.000 | undefined | **0.000** |
+| PALUE7PALUET4 | 6,697 | 0.000 | undefined | **0.000** |
+| PENLY7PENLYT1 | 2,424 | 0.000 | undefined | **0.000** |
+| PENLY7PENLYT2 | 2,424 | 0.000 | undefined | **0.000** |
+| stable | 3,655 | 0.975 | 0.911 | 0.942 |
+
+Macro F1 0.337, weighted F1 0.253. Four classes score exactly 0 because they are never predicted, and `PALUE7PALUET1` pays for absorbing them with a precision of 0.267. Neither number describes the estimator; both describe the explode. The interscada/pl report's macro 0.690 is not comparable.
 
 ### Event level, one row per fault
 
@@ -108,9 +123,40 @@ The recorded generator was absent from the candidate set in 0.01% of records, wi
 
 So retrieval names the correct out-of-step *group* in 98.3% of events, and the errors are almost entirely confusions with the stable class rather than between generators. What it cannot do on this data is tell one machine of a group from another, because nothing in the archive distinguishes them.
 
-## What deduplication changed
+## Most critical location
 
-The first pass on this drop, before duplicates were removed at preparation, produced numbers that looked much better and were not trustworthy.
+The most critical location is the one with the lowest recorded CCT, the contingency a screening pass should simulate first. Ranking a state's locations by estimated severity:
+
+### Top-1 and top-3 screening
+
+| k | Worst location found | Regret mean | q50 | q90 | q95 | q99 | q100 |
+|---|---|---|---|---|---|---|---|
+| 1 | **99.92%** | 0.00002 | 0 | 0 | 0 | 0 | 0.02344 |
+| 3 | **100.00%** | 0.00000 | 0 | 0 | 0 | 0 | 0.00000 |
+
+Exact location match is 99.77%, and the two figures differ only because two states have several locations tied at the minimum. MAE on the state's minimum CCT is 0.00631 s, better than the overall 0.01407 s. At k=3 the worst case over all 1,304 states is zero regret.
+
+This is the strongest result in the report and it is not an artefact of duplication, which was removed at preparation.
+
+Screening recall is nearly vacuous on this archive: only **27 of 1,304 states** hold any location below 0.20 s, so recall is 1.0 at k=1 over those 27. With a mean CCT of 0.658 s and a 1.0 s ceiling, this drop contains few severe contingencies at all.
+
+### Location likelihood is not a fault-location prediction
+
+`location_likelihood` ranks locations by retrieved weight mass within a generator group, that is by which location the query resembles, not which is severe.
+
+| Measure | Value |
+|---|---|
+| Recorded location ranks first | 30.29% |
+| Recorded location in top 3 | 70.19% |
+| Mean locations competing | 5.94 |
+| Mean winning score | 0.3024 |
+| **Most likely location equals the estimated most critical location** | **0.00%** |
+
+Against a uniform baseline near 17% over 5.94 competing locations, ranking first 30% of the time beats chance but is far too weak to present as a prediction. The last row is categorical: across all 1,304 states the most likely location is *never* the estimated most critical one. That is why the fallback estimate built on the most likely location carries nearly nine times the error, and why fault location must be supplied as an input.
+
+## Duplicate states
+
+**264 duplicate scenarios, 240 pairs plus one group of 25, were removed at preparation** (see the dataset README). Every figure in this report is computed without them. The first pass on this drop, before they were removed, produced numbers that looked much better and were not trustworthy.
 
 | | before dedup | after dedup and explode |
 |---|---|---|
