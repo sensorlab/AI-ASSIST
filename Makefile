@@ -61,7 +61,6 @@ report: ## Render dataset Markdown reports to PDF, e.g. `make report` or `make r
 			--lua-filter=templates/natural-tables.lua \
 			--lua-filter=templates/unbreakable-tables.lua \
 			-M title="$$dataset $$(basename "$$f" .md | tr '_-' '  ')" \
-			-M author="$$(git config user.name)" \
 			-M date="$$(date +%F)" \
 			-o "$$out" || exit 1; \
 	done
