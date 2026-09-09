@@ -1,0 +1,5 @@
+% Loaded by `make report` via pandoc -H. The dataset reports are table-heavy and several
+% run to eleven or twelve columns, so set every table smaller and tighten the column padding.
+% Kept out of ministate.cls so that file stays a verbatim copy of the published class.
+\usepackage{etoolbox}
+\AtBeginEnvironment{longtable}{\scriptsize\setlength{\tabcolsep}{3pt}}

@@ -48,6 +48,25 @@ prepare: ## Prepare a dataset, e.g. `make prepare DATASET=bus39`
 	$(Q)$(UV) run ai-assist-prepare $(DATASET)
 
 
+.PHONY: report
+report: ## Render dataset Markdown reports to PDF, e.g. `make report` or `make report REPORT=datasets/interscada/pl/reports/loso_report.md`
+	$(Q)command -v pandoc >/dev/null 2>&1 || { echo "❌ pandoc not found"; exit 1; }
+	$(Q)if [ -n "$(REPORT)" ]; then echo "$(REPORT)"; else find datasets -path '*/reports/*.md'; fi | while read -r f; do \
+		out="$${f%.md}.pdf"; \
+		dataset=$$(echo "$$f" | sed -e 's|^datasets/||' -e 's|/reports/.*||'); \
+		echo "🚀 $$f -> $$out"; \
+		TEXINPUTS="$(CURDIR)/templates:" nice -n 19 pandoc "$$f" -s \
+			-V documentclass=ministate \
+			-H templates/report-tables.tex \
+			--lua-filter=templates/natural-tables.lua \
+			-M title="$$dataset $$(basename "$$f" .md | tr '_-' '  ')" \
+			-M author="$$(git config user.name)" \
+			-M date="$$(date +%F)" \
+			-o "$$out" || exit 1; \
+	done
+	$(Q)echo "🚀 Reports rendered!"
+
+
 .PHONY: help
 help: ## This help.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)

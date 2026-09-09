@@ -350,3 +350,7 @@ datasets/**/processed/**
 # carries its own result history and a rerun after a new data drop can be diffed against the
 # previous one. The dataset's own raw/interim/processed stay ignored as before.
 !datasets/**/reports/*.csv
+
+# The PDFs `make report` renders from those directories' tracked Markdown are build artifacts:
+# pandoc plus templates/ reproduce them, so only the Markdown and the CSVs are tracked.
+datasets/**/reports/*.pdf
