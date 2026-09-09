@@ -1,0 +1,3 @@
+threshold_s,k,n_states,mean_recall
+0.2,1,27,1.0
+0.2,3,27,1.0

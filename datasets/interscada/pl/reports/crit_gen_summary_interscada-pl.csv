@@ -1,0 +1,2 @@
+dataset,n_states,n_records,n_stable_records,n_scored,top1_accuracy,top3_accuracy,top1_accuracy_unstable_only,top1_accuracy_stable_only,true_generator_absent_from_candidates,mean_candidates
+interscada/pl,780,49140,5613,49140,0.7821937321937322,0.9485347985347985,0.7682358076596135,0.8904329235702833,0.0056776556776556774,5.8187423687423685

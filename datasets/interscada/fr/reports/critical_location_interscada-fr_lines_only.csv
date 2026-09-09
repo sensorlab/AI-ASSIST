@@ -1,0 +1,2 @@
+n_states,exact_location_match,attains_minimum,regret_within_one_label_step,regret_mean_s,regret_median_s,regret_q95_s,regret_max_s,mae_on_minimum_cct_s,states_with_tied_minimum
+1304,0.9976993865030674,0.9992331288343558,0.9992331288343558,1.79731595092024e-05,0.0,0.0,0.02343699999999993,0.006305567534008114,2
