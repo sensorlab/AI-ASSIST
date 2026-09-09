@@ -1,5 +1,15 @@
-% Loaded by `make report` via pandoc -H. The dataset reports are table-heavy and several
-% run to eleven or twelve columns, so set every table smaller and tighten the column padding.
-% Kept out of ministate.cls so that file stays a verbatim copy of the published class.
+% Loaded by `make report` via pandoc -H.
+%
+% templates/unbreakable-tables.lua replaces every table with a raw LaTeX block, so pandoc no
+% longer sees a table in the document and its template stops loading the table packages.
+% booktabs and array must therefore be loaded here, or \toprule is undefined; float supplies
+% the [H] placement that keeps a table off a page break.
+%
+% The reports are table-heavy and several tables run to eleven or twelve columns, so set every
+% table smaller and tighten the column padding. Kept out of ministate.cls so that file stays a
+% verbatim copy of the published class.
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{float}
 \usepackage{etoolbox}
-\AtBeginEnvironment{longtable}{\scriptsize\setlength{\tabcolsep}{3pt}}
+\AtBeginEnvironment{tabular}{\scriptsize\setlength{\tabcolsep}{3pt}}

@@ -22,12 +22,12 @@ The 431 line-status flags partition the archive into **10 topology groups** of 2
 
 Coverage is effectively complete: **29,892 of 29,895 records (99.99%)** receive a location-specific estimate, and every record receives some estimate. The topology filter never abstains here because no group is a singleton, unlike the 55-state pilot where it answered 3.66% of records.
 
-| Estimate | n | MAE | RMSE | q0 | q25 | q50 | q75 | q90 | q95 | q99 | q100 |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| recorded location | 29,892 | **0.01407** | 0.02652 | 0 | 0.00167 | 0.00633 | 0.01614 | 0.03625 | 0.05555 | 0.11442 | **0.26306** |
-| most likely location | 29,895 | 0.12297 | 0.18804 | 0 | 0.00414 | 0.04636 | 0.23985 | 0.35141 | 0.40903 | 0.45985 | 0.60167 |
-| recorded, n_eff below median (8.7) | 14,944 | 0.01384 | 0.02636 | 0 | 0.00169 | 0.00607 | 0.01477 | 0.03512 | 0.05667 | 0.11501 | 0.24025 |
-| recorded, n_eff at or above median | 14,948 | 0.01430 | 0.02667 | 0 | 0.00165 | 0.00651 | 0.01704 | 0.03689 | 0.05496 | 0.11245 | 0.26306 |
+| Estimate | n | MAE | RMSE | q25 | q50 | q75 | q90 | q95 | q99 | q100 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| recorded location | 29,892 | **0.01407** | 0.02652 | 0.00167 | 0.00633 | 0.01614 | 0.03625 | 0.05555 | 0.11442 | **0.26306** |
+| most likely location | 29,895 | 0.12297 | 0.18804 | 0.00414 | 0.04636 | 0.23985 | 0.35141 | 0.40903 | 0.45985 | 0.60167 |
+| recorded, n_eff below median (8.7) | 14,944 | 0.01384 | 0.02636 | 0.00169 | 0.00607 | 0.01477 | 0.03512 | 0.05667 | 0.11501 | 0.24025 |
+| recorded, n_eff at or above median | 14,948 | 0.01430 | 0.02667 | 0.00165 | 0.00651 | 0.01704 | 0.03689 | 0.05496 | 0.11245 | 0.26306 |
 
 Against a mean recorded CCT of 0.658 s that is a 2.1% relative MAE, and the distribution is skewed: the median error is 6.3 ms, three quarters of records fall inside 16 ms, and the maximum is 0.263 s, nearly 19 times the mean.
 
@@ -146,18 +146,18 @@ DATASET_NAME=interscada/fr QDRANT_URL=":memory:" \
 
 Retrieval took 1,771 s for 1,304 states; the service builds in 3.6 s.
 
-| Path | Content |
+| File | Content |
 |---|---|
-| `datasets/interscada/fr/reports/risk_coverage_interscada-fr_lines_only.csv` | risk-coverage curve per diagnostic |
-| `datasets/interscada/fr/reports/error_quantiles_interscada-fr_lines_only.csv` | absolute-error quantiles per estimate and support split |
-| `datasets/interscada/fr/reports/critical_location_interscada-fr_lines_only.csv` | most-critical-location selection |
-| `datasets/interscada/fr/reports/topk_location_interscada-fr_lines_only.csv` | top-1 and top-3 severity ranking with regret quantiles |
-| `datasets/interscada/fr/reports/topk_screening_recall_interscada-fr_lines_only.csv` | share of unsafe locations captured at top-1 and top-3 |
-| `datasets/interscada/fr/reports/crit_gen_event_confusion_interscada-fr.csv` | event-level confusion matrix, counts |
-| `datasets/interscada/fr/reports/crit_gen_event_confusion_relative_interscada-fr.csv` | event-level confusion matrix, row-normalised |
-| `datasets/interscada/fr/reports/crit_gen_event_summary_interscada-fr.csv` | set-membership accuracy and the per-record ceiling |
-| `datasets/interscada/fr/reports/crit_gen_confusion_interscada-fr.csv` | per-record confusion matrix, counts (see caveats above) |
-| `datasets/interscada/fr/reports/crit_gen_confusion_relative_interscada-fr.csv` | per-record confusion matrix, row-normalised |
-| `datasets/interscada/fr/reports/crit_gen_per_class_interscada-fr.csv` | per-class recall, precision, F1 |
+| `risk_coverage_interscada-fr_lines_only.csv` | risk-coverage curve per diagnostic |
+| `error_quantiles_interscada-fr_lines_only.csv` | absolute-error quantiles per estimate and support split |
+| `critical_location_interscada-fr_lines_only.csv` | most-critical-location selection |
+| `topk_location_interscada-fr_lines_only.csv` | top-1 and top-3 severity ranking with regret quantiles |
+| `topk_screening_recall_interscada-fr_lines_only.csv` | share of unsafe locations captured at top-1 and top-3 |
+| `crit_gen_event_confusion_interscada-fr.csv` | event-level confusion matrix, counts |
+| `crit_gen_event_confusion_relative_interscada-fr.csv` | event-level confusion matrix, row-normalised |
+| `crit_gen_event_summary_interscada-fr.csv` | set-membership accuracy and the per-record ceiling |
+| `crit_gen_confusion_interscada-fr.csv` | per-record confusion matrix, counts (see caveats above) |
+| `crit_gen_confusion_relative_interscada-fr.csv` | per-record confusion matrix, row-normalised |
+| `crit_gen_per_class_interscada-fr.csv` | per-class recall, precision, F1 |
 | `tmp/report-interscada-fr-lines_only.joblib` | per-record predictions and diagnostics |
 | `tmp/crit-gen-confusion-interscada-fr.joblib` | per-record generator rankings |

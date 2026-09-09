@@ -258,7 +258,10 @@ def _risk_coverage(df: pd.DataFrame, metric: str, higher_is_better: bool) -> pd.
 # Reported quantiles of the absolute-error and regret distributions. Deliberately not folded
 # into _risk_coverage()'s own columns: that table reproduces reports/30's risk_coverage() and
 # its CSV is what the manuscript's figure is built from, so its schema stays fixed.
-ERROR_QUANTILES: Final[tuple[float, ...]] = (0.0, 0.25, 0.50, 0.75, 0.90, 0.95, 0.99, 1.0)
+# The 0th quantile is omitted: the best case is exactly zero on every dataset and every subset
+# measured so far, since some record always lands on its neighbours' weighted mean, so the
+# column carried no information and only widened an already twelve-column table.
+ERROR_QUANTILES: Final[tuple[float, ...]] = (0.25, 0.50, 0.75, 0.90, 0.95, 0.99, 1.0)
 SCREENING_THRESHOLDS: Final[tuple[float, ...]] = (0.10, 0.15, 0.20)
 # Top-1 and top-3 only. Larger k stops being informative here: a state holds 63 locations but
 # the recorded generator's candidate set averages under six, so a top-5 rate mostly measures
