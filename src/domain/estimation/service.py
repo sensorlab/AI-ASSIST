@@ -303,7 +303,7 @@ def make_scaler_interscada_pl() -> Any:
     ).set_output(transform="pandas")
 
 
-def make_scaler_interscada_fr() -> Any:
+def make_scaler_interscada_fr(topology_cols: Iterable[str] | None = None) -> Any:
     """Per-column StandardScaler - same fix as make_scaler_interscada_pl() above (see
     paper-sr/EXPERIMENTS.md #16): hardcoded range constants plus a *20 multiply on the angle
     branch let angle drive 99.63% of total squared distance pre-fix. The line-name
@@ -361,9 +361,17 @@ def make_scaler_interscada_fr() -> Any:
             make_column_selector(pattern=r"^Qload_"),
         ),
         (
-            # line topology status (0/1); NaN-free but impute for safety
+            # Line topology status (0/1); NaN-free but impute for safety. Selected from the exact
+            # list this dataset's transform declared, not from the shape of the name: unlike
+            # interscada/pl, whose transform invents line_status_* / gen_status names, FR passes
+            # the partner's own line identifiers straight through. The September 2026 drop added
+            # two starting with a dot (".ANGL 7 .CHER 1" and ".ANGL 7 .CHIL 1", the England-side
+            # interconnector branches), which the previous r"^[A-Z][^_]*$" pattern did not match;
+            # remainder="drop" then removed them silently and the build failed later, in
+            # build_estimation_service()'s topology feature_map, with no hint of the cause.
+            # The pattern remains as a fallback so the factory still works without a list.
             SimpleImputer(strategy="constant", fill_value=1, keep_empty_features=True),
-            make_column_selector(pattern=r"^[A-Z][^_]*$"),  # line names e.g. ALBERL71BATHI, no underscore
+            list(topology_cols) if topology_cols is not None else make_column_selector(pattern=r"^[A-Z][^_]*$"),
         ),
         remainder="drop",  # drops n_buses and any unrecognised cols
         n_jobs=-1,
@@ -372,7 +380,7 @@ def make_scaler_interscada_fr() -> Any:
     ).set_output(transform="pandas")
 
 
-def _make_scaler_for_dataset(dataset_name: str) -> Any:
+def _make_scaler_for_dataset(dataset_name: str, topology_cols: Iterable[str] | None = None) -> Any:
     name = dataset_name.strip().lower()
     scaler_by_dataset = {
         "bus39": make_scaler_bus39,
@@ -383,7 +391,10 @@ def _make_scaler_for_dataset(dataset_name: str) -> Any:
     }
 
     try:
-        return scaler_by_dataset[name]()
+        factory = scaler_by_dataset[name]
+        # Only interscada/fr takes the list. Every other dataset's topology columns are named by
+        # its own transform, so a pattern is stable there and needs no plumbing.
+        return factory(topology_cols) if name == "interscada/fr" else factory()
     except KeyError as exc:
         supported = ", ".join(sorted(scaler_by_dataset))
         raise ValueError(
@@ -1212,7 +1223,10 @@ def build_estimation_service() -> EstimationService:
     if path_sssa_dataset is not None:
         sssa = SqliteRecordStore(path_sssa_dataset, table="sssa")
 
-    scaler: Any = _make_scaler_for_dataset(config.dataset_name)
+    # Read the topology list before fitting: interscada/fr's scaler selects its passthrough
+    # branch from exactly this set instead of guessing at line-name shape (see that factory).
+    si_topo_cols: list[str] = json.loads(path_topology_cols.read_text())
+    scaler: Any = _make_scaler_for_dataset(config.dataset_name, si_topo_cols)
     lf_scaled = cast(pd.DataFrame, scaler.fit_transform(lf))
     # The scalers set n_jobs=-1, which pays off here (one fit_transform over the whole corpus,
     # per-group work large enough to amortize the dispatch) and is actively harmful afterwards:
@@ -1225,7 +1239,6 @@ def build_estimation_service() -> EstimationService:
     # (verified bitwise on both datasets).
     scaler.n_jobs = None
 
-    si_topo_cols: Iterable[str] = json.loads(path_topology_cols.read_text())
     feature_map: dict[str, str] = {}
     for col in si_topo_cols:
         candidates = [c for c in lf_scaled.columns if c == col or c.startswith(col + "_")]

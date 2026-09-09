@@ -63,9 +63,31 @@ def prepare_tsa_dataset(path: Path) -> pd.DataFrame:
     tsa_long = tsa_long.dropna(subset=["CCT"])
     logger.info(f"tsa_long dropped {prev - len(tsa_long)} CALC PB rows")
 
+    # A fault here takes a whole group of machines out of synchronism, so the raw cell lists
+    # them comma-separated (e.g. "PALUE7PALUET1, PALUE7PALUET3, PALUE7PALUET4"). Kept whole, the
+    # three distinct strings in this drop would act as three opaque classes, two of them nested,
+    # and Crit_gen would mean something different here than in every other dataset. Exploding to
+    # one row per machine restores the project-wide meaning of Crit_gen as a single generator,
+    # and the machine names then match the pilot's six.
+    #
+    # The full group is kept in crit_gen_group, because the explosion is lossy: from the
+    # per-machine rows alone there is no way to tell which machines lost synchronism together in
+    # one event. CCT is replicated across a group's rows - it is a property of the fault, not of
+    # the individual machine - so any count of records over-counts events by the group size.
+    tsa_long["crit_gen_group"] = tsa_long["Crit_gen"]
+    tsa_long["Crit_gen"] = tsa_long["Crit_gen"].map(
+        lambda value: [part.strip() for part in str(value).split(",")] if pd.notna(value) else [value]
+    )
+    prev = len(tsa_long)
+    tsa_long = tsa_long.explode("Crit_gen", ignore_index=True)
+    logger.info(
+        f"Exploded multi-generator outcomes: {prev} rows -> {len(tsa_long)} "
+        f"({tsa_long['Crit_gen'].nunique()} distinct critical generators)"
+    )
+
     tsa_long = optimize_dataframe(tsa_long)
-    # Crit_gen is intentionally NaN for stable faults (CCT = 0.8s ceiling)
-    required_cols = [c for c in tsa_long.columns if c != "Crit_gen"]
+    # Crit_gen and crit_gen_group are intentionally NaN for stable faults (CCT at the ceiling)
+    required_cols = [c for c in tsa_long.columns if c not in ("Crit_gen", "crit_gen_group")]
     if not (tsa_long[required_cols].isnull().sum().sum() == 0):
         raise ValueError
 
@@ -97,10 +119,42 @@ def main(in_dir: Path, out_dir: Path):
         in_dir / "static_global_results_clean.csv",
         in_dir / "line_global_results_clean.csv",
     )
-    lf.to_pickle(out_dir / "lf.pkl")
 
     logger.info("Prepare TSA dataset ...")
     tsa = prepare_tsa_dataset(in_dir / "cct_global_results_clean.csv")
+
+    # Exact duplicate scenarios. The September 2026 drop stores 264 of its 1,571 scenarios as
+    # byte-identical copies of another scenario - 240 pairs plus one group of 25 - and the
+    # copies carry identical outcomes too (all 453 duplicate pairs agree on CCT at every shared
+    # fault location), so they add no information. They are not merely a nuisance for
+    # evaluation, where a query would retrieve a verbatim copy of its own answer despite
+    # leave-one-state-out: a duplicated operating point also gets counted once per copy in the
+    # kernel-weighted mean, so 25 copies of one state would carry 25 times the weight of a
+    # state recorded once. Detected by exact row equality rather than a distance threshold,
+    # which needs no tolerance and does not change with float precision.
+    before = len(lf)
+    lf = lf[~lf.duplicated(keep="first")]
+    if before != len(lf):
+        logger.info(f"Dropping {before - len(lf)} duplicate LF states, {len(lf)} distinct states retained")
+
+    # The static/line/hvdc files and the CCT file do not always cover the same scenarios: the
+    # September 2026 drop carries 1,571 in the former and 1,568 in the latter. A state with no
+    # simulated outcome cannot support an estimate, and EstimationService treats a retrieved
+    # state with no TSA record as an error rather than a silent gap, so such states are dropped
+    # from the reference library here rather than being indexed and failing at query time.
+    orphans = lf.index.difference(pd.Index(tsa["state"].unique()))
+    if len(orphans):
+        logger.info(f"Dropping {len(orphans)} LF states with no TSA record: {sorted(orphans)}")
+        lf = lf.loc[~lf.index.isin(orphans)]
+
+    # Keep the outcome table aligned with the retained reference library, so record counts and
+    # coverage denominators refer to the same set of states everything else does.
+    prev = len(tsa)
+    tsa = tsa[tsa["state"].isin(set(lf.index.astype(str)))]
+    if prev != len(tsa):
+        logger.info(f"Dropped {prev - len(tsa)} TSA rows belonging to removed states")
+
+    lf.to_pickle(out_dir / "lf.pkl")
     tsa.to_pickle(out_dir / "tsa.pkl")
     write_sqlite_table(tsa, out_dir.parent / "processed" / "tsa.db", table="tsa")
 
