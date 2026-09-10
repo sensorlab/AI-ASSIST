@@ -10,6 +10,43 @@ The v2 drop is a pure superset of the previous one: all 761 raw states of the ea
 
 Two facts about the archive shape matter for reading everything below. All 761 states fall in a **single topology group**, so the exact-topology filter never restricts a query and never causes an abstention; this dataset cannot exhibit the coverage behaviour that dominates the ELES results. And **11.5% of records (5,496) are stable**, reaching the 500 ms simulation ceiling with no critical generator.
 
+## Methodology
+
+### Protocol
+
+Every state in the archive is used once as a query and scored against a reference library holding **all other states**. The query's own state is passed to the service as an excluded id, and both scripts assert on every query that no excluded state contributed to the returned estimate; the assertion never fired. Exact duplicates are removed at preparation, so a query cannot meet a copy of itself under another name.
+
+Retrieval runs through the production path, `build_estimation_service()` with an embedded Qdrant, not a separate research harness. A query is scaled by the dataset's fitted `ColumnTransformer`, then matched against reference states **filtered to exact equality of the switching-status vector**, and the nearest **K = 100** of those by Euclidean distance in the scaled feature space are returned. Neighbours are grouped by recorded critical generator and fault location, and within a group each contributes weight `exp(-d)`, `d` being its distance to the query, normalised to sum to one. The estimate is that weighted mean of the neighbours' recorded CCT.
+
+Preprocessing is transductive: the scaler is fitted and the index populated over the whole archive including the query. Exclusion applies to retrieval, not to preprocessing.
+
+
+On this dataset a fault names a single critical generator, so a record is one `(state, location)` contingency and record-level and event-level figures coincide.
+
+### Metrics
+
+**Coverage** is the share of records receiving an estimate at their own recorded fault location. A record is uncovered when no retrieved state carries a candidate generator at that location. Where a dataset's topology key partitions the archive, a query with no compatible state abstains and is likewise uncovered.
+
+**Absolute error** is `|recorded CCT - estimated CCT|` in seconds. Reported as MAE and RMSE, and as a quantile ladder q25 through q100, because a mean hides the shape: these estimators are tight in the bulk with a thin tail of severe misses, and the two are worth separating. The 0th quantile is omitted, being exactly zero everywhere measured.
+
+Two estimates are scored separately. The **recorded-location** estimate conditions on the fault location, which a contingency screen enumerates and therefore knows. The **most-likely-location** estimate is the fallback that uses retrieval's own top-ranked location instead, and is reported to show what conditioning is worth.
+
+**Support diagnostics** are scored by risk-coverage. Records are ranked from most to least trusted by each diagnostic, then MAE is recomputed over the best-ranked half. A diagnostic is informative if that MAE falls below the full-coverage MAE, and actively misleading if it rises, which means it ranks estimates worse than not sorting at all.
+
+**Critical-generator identification** ranks the candidate generators at a record's recorded fault location by `crit_gen_likelihood`, the raw never-renormalised kernel mass, which is the only quantity comparable across generator groups. **Top-1** is the share of records whose recorded generator is ranked first, **top-3** the share ranked in the first three. Stable outcomes are a class rather than an absence: the archive stores a stable record with a null generator, the service groups those rows like any other, and the ranking can name "stable" as the most likely result.
+
+**Per class**, recall is the share of a class's records identified correctly, precision the share of records predicted as that class that belong to it, and **F1** their harmonic mean. A class never predicted scores F1 0 rather than undefined. **Macro F1** averages classes equally and **weighted F1** by support; the gap between them measures how much the aggregate leans on the largest classes.
+
+**Most critical location** is the fault location with the lowest recorded CCT, the contingency a screen should simulate first. Retrieval's choice is the location with the lowest estimated CCT. A hit credits **any** location tied at the recorded minimum, since CCT sits on a coarse label grid and choosing between two equally severe contingencies is not an error. **Regret** is the same question in seconds: the recorded CCT at the chosen location minus the true minimum, zero on a hit.
+
+**Top-k screening** generalises that: order the state's locations by estimated severity, simulate the first k, and ask whether a worst-case contingency is among them. Only **k = 1 and k = 3** are reported; larger k stops discriminating, since a candidate set averages under six generators. **Screening recall** answers the different and harder question of what share of *all* locations below a clearing-time threshold the same k picks capture.
+
+**Location likelihood** is reported separately from severity. `location_likelihood` ranks locations by retrieved weight mass, that is by which location a query resembles, not by which is most severe, and the two are compared explicitly rather than assumed to agree.
+
+### What is not measured
+
+No calibrated prediction intervals, no live-deployment performance (the protocol is retrospective and, absent timestamps on these archives, temporally non-causal), and no computational speed. The reported quality of a diagnostic is a ranking property, not a probability of error.
+
 ## Coverage and accuracy
 
 | Quantity | Value |
