@@ -245,14 +245,22 @@ The 761 states are three sweeps over the same operating-point grid, `SET_00NN`, 
 
 The `SET_0925` batch has no sweep of its own, so comparing it against the unrestricted median of 1.43 compares a state with a twin against one without. The like-for-like baseline is the third row: how far an existing state is from the archive once its own slot is excluded.
 
-### On that baseline they are not outliers
+### They sit on the edge of the cloud
+
+Both comparisons are worth stating, because they answer different questions and only together give the position.
+
+Against the plain distribution, where each existing state's nearest neighbour is another existing state, the batch is **outside**: the existing distances run from 0.028 to a **maximum of 6.818**, median 1.430, and **14 of the 18 new states exceed that maximum**, ten of them past 10. Only `Point_no. 3`, at 0.669, falls inside the bulk, and it is the survivor of the pair that deduplication broke up.
+
+Against the sibling-free baseline, which is the fair one, the batch is at **the edge rather than beyond it**:
 
 | | median | spread |
 |---|---|---|
 | new (18) | 10.38 | 0.67 to 12.18 |
 | existing, sibling-free (743) | 3.19 | p90 10.75, p99 19.43, max 36.01 |
 
-Six of the eighteen exceed the existing 90th percentile, **none exceeds the 99th**, and none comes close to the maximum: the archive already holds sibling-free states three times more isolated than anything in the new batch. The difference is real, Mann-Whitney p = 4.4e-06, but it places the batch inside the existing distribution rather than beyond it.
+The median new state sits at roughly the existing **90th percentile**, six exceed it, none exceeds the 99th, and none approaches the maximum of 36.01. So a handful of existing slots are more isolated still, but the typical new state is as isolated as the most isolated tenth of the archive. Mann-Whitney p = 4.4e-06.
+
+The batch also leans on a very small part of the archive: `SET_0023 Point 3` is the nearest existing state for six of the eighteen and `SET_0001 Points 14-20` for eight more. Distances rise monotonically with point number, 0.669 at Point 3 to 12.181 at Point 18, which is the trajectory reading again: the sweep starts on an existing state and walks outward.
 
 ### They do occupy a distinct corner of the feature space
 
@@ -276,6 +284,26 @@ Bucketing existing states by sibling-free isolation separates what follows from 
 
 `n_neighbors` does not follow. Isolated existing states keep about 46 neighbours in their group; the batch has 20.2, less than half what isolation alone predicts, and its coverage sits below even the most isolated decile.
 
+### Being on the edge costs accuracy, and the archive shows it independently
+
+Distance says how far the neighbours are, not whether they surround the query. The ratio between the offset to the neighbours' centroid and the mean distance to them separates the two: near 0 the query is enclosed and the estimate interpolates, near 1 every neighbour lies on one side and it extrapolates.
+
+Measured over the existing states alone, with no reference to the new batch, the cost is monotone:
+
+| Existing states by geometry | ratio | MAE | coverage | n_eff | n_neighbors |
+|---|---|---|---|---|---|
+| most surrounded fifth | 0.447 | **0.0111** | 99.58% | 18.2 | 48.6 |
+| second | 0.556 | 0.0114 | 99.36% | 13.4 | 45.2 |
+| middle | 0.649 | 0.0137 | 99.40% | 11.6 | 46.1 |
+| fourth | 0.748 | 0.0153 | 99.38% | 6.98 | 46.0 |
+| most on the edge | 0.858 | **0.0163** | 99.14% | 4.16 | 42.2 |
+
+**Error rises 47% from the most enclosed fifth of the archive to the most peripheral**, independently of the new batch. The new states have a median ratio of **0.843**, which places them in that last row, and their measured MAE of 0.0160 and n_eff of 3.91 match its 0.0163 and 4.16 almost exactly. Their accuracy is what their position predicts, no worse.
+
+Their `n_neighbors` is not: 20.2 against the 42.2 of existing edge states, and coverage 98.77% against 99.14%. That gap is the outcome disagreement below, not the geometry.
+
+Two practical consequences. Estimates for states on the edge of the sampled region are systematically weaker, so an archive extended by walking outward from existing points buys less than its size suggests. And the geometry is measurable at query time while the error is not: this ratio correlates with per-state error at Spearman 0.183 and is monotone across the buckets above, whereas mean neighbour distance correlates at **-0.147**, the wrong sign. That is consistent with the diagnostics table, where every `distance_*` measure ranks estimates worse than not sorting at all, and it suggests a geometry-based indicator would be worth more than the distance-based ones the service currently reports.
+
 ### The residual is outcome disagreement
 
 `n_neighbors` counts retrieved states sharing the query's `(Location, Crit_gen)` group, so it falls when neighbours disagree about which machine goes critical. With the majority generator computed excluding the state's own slot, so the comparison stays like-for-like:
@@ -290,7 +318,11 @@ Isolation accounts for most of that fall, and agreement correlates with isolatio
 
 ### Summary
 
-Three findings, in descending confidence. The new states are **not unusually isolated** once the sweep structure is accounted for. Their **weight concentration is fully explained** by the isolation they do have. Their **group-membership and coverage deficits are not**: those trace to a critical-generator map that differs from the archive's, consistent with the load shifted onto buses 28 and 29.
+The batch sits **on the edge of the sampled cloud**, not outside it: beyond every existing state's own nearest-neighbour distance, but within the spread the archive already produces where the sweep structure supplies no twin.
+
+That position accounts for most of what is observed. **Weight concentration and accuracy are fully explained** by it: the batch's n_eff of 3.91 and MAE of 0.0160 match the existing edge quintile's 4.16 and 0.0163. What it does **not** explain is the group-membership and coverage deficit, 20.2 neighbours against 42.2 and 98.77% against 99.14%, which traces to a critical-generator map that differs from the archive's, consistent with the load shifted onto buses 28 and 29.
+
+The general lesson is about the archive rather than the batch: error grows steadily toward the edge of the sampled region, by 47% between the most enclosed and most peripheral fifths, so extending an archive outward from its existing points yields weaker estimates than its record count implies.
 
 
 ## Duplicate states
