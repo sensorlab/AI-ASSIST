@@ -284,11 +284,21 @@ The archive's actual structure is the three sweeps, and they are interleaved rat
 | angle spread | 25.5 deg | 25.3 deg | 15.7-32.0 | 13.9-55.2 | 0.04 | ns |
 | generators online | 10 | 10 | | | | |
 
-The sharpest separator is **network losses**: the new batch occupies a narrow 71 to 90 MW band where the existing archive spans 69 to 607 MW. Everything else overlaps heavily. Voltages, angle spread and unit commitment are indistinguishable, and all ten machines are online in every state of both groups.
+The sharpest aggregate separator is **network losses**: the new batch occupies a narrow 71 to 90 MW band where the existing archive spans 69 to 607 MW. Voltages, angle spread and unit commitment are indistinguishable, and all ten machines are online in every state of both groups.
 
-So the new states are not a new operating regime. They are more heavily loaded points inside the same envelope, drawn from a much narrower loss band, sitting at the periphery of existing clusters rather than beyond them.
+**Those aggregates are misleading, and the totals match only because the shifts cancel.** Feature by feature the batch is far from ordinary: **48 of the 169 continuous features shift by more than one standard deviation** and 90 by more than half of one. The largest are the loads at buses 28 and 29, both at Cohen d = 3.24, which roughly double, from 101 to 199 MW and from 139 to 272 MW, followed by several 345 kV bus angles at d near 3.2. The ten largest carry 48.3% of the squared mean offset. The 424 MW gap in total load is a net figure over larger movements in both directions: +134 MW at bus 29, +126 at bus 8, +98 at bus 28, against -87 at bus 1. Same envelope in the sum, a different point in the space.
 
-That also explains the retrieval result without appealing to novelty. The existing states arrive in tight sweeps, with a mean within-family nearest-neighbour distance of **2.05** and as little as 1.03 for `SET_0007`, so a typical query has near-identical siblings to retrieve. The new batch has no sweep of its own, and its nearest existing neighbours fall in just two families: `SET_0001` for 10 of the 18 and `SET_0023` for 7, with one at `SET_0025`. Thin support here is a sampling artefact of how the archive was built, not evidence that the states are hard to estimate.
+That offset is what the distance metric sees, and it does not come from a handful of columns. Removing the most-separating features shrinks the gap without closing it:
+
+| Features dropped | new median NN | existing median NN | ratio |
+|---|---|---|---|
+| none (169) | 10.37 | 1.43 | **7.3x** |
+| top 10 (159 left) | 7.92 | 1.39 | 5.7x |
+| top 48 (121 left) | 4.69 | 1.18 | 4.0x |
+
+**Their outcomes differ too, which is what coverage actually depends on.** Support is not proximity: a record is covered only when retrieved neighbours share its `(Location, Crit_gen)` combination. The new states' critical generator matches the location's majority generator among existing states in **23.8%** of records, against **36.3%** for the existing states themselves. So even the neighbours they do retrieve frequently disagree about which machine goes out of step, which is why `n_neighbors` falls from 45.6 to 20.2 and `n_eff` from 10.88 to 3.93.
+
+So the batch is a genuinely different operating condition, not a sampling gap: heavier load concentrated on particular buses, a different critical-generator map, and correspondingly thinner support. The tightness of the existing sweeps contributes, since a typical query has near-identical siblings to retrieve, with a mean within-family nearest-neighbour distance of **2.05** and as little as 1.03 for `SET_0007`, while the new batch has no sweep of its own and leans on two families, `SET_0001` for 10 of its 18 states and `SET_0023` for 7. But that is a second effect on top of a real difference, not an alternative explanation for it.
 
 ## Duplicate states
 
