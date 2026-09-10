@@ -233,7 +233,7 @@ Against a uniform baseline of about 2% over 48 competing locations, ranking firs
 
 Yes, decisively, in the input space.
 
-Nearest-neighbour distance to the 761 existing states, over 169 standardised continuous features:
+Nearest-neighbour distance to the 743 existing states, over 169 standardised continuous features:
 
 | | median | mean | max |
 |---|---|---|---|
@@ -257,6 +257,38 @@ Retrieval support on the new states is unambiguously thinner, while the accuracy
 | Coverage | 98.77% | 99.37% | - |
 
 Under half the neighbours at nearly double the distance, for 18% higher error that does not reach significance. Support degrades before conditional accuracy does, which is the same ordering the ELES analysis reports.
+
+### Do they form their own cluster?
+
+No. Clustering the 761 states by k-means on the same standardised features, the new batch always lands inside existing clusters and never gets one of its own, at any k from 2 to 6.
+
+| Cluster (k=6) | sweep 0 | sweep 1 | sweep 2 | `SET_0925` |
+|---|---|---|---|---|
+| 0 | 93 | 105 | 115 | 3 |
+| **2** | 38 | 33 | 24 | **15** |
+| 1, 3, 4, 5 | 115 | 110 | 110 | 0 |
+
+They do concentrate, 15 of 18 in one cluster, but reach at most **13.6%** of any cluster's membership. Within the clusters they join they sit further out than typical members, at a mean distance to centroid of 9.86 against 7.55 in cluster 2 and 7.33 against 4.67 in cluster 0, both inside the existing 95th percentile.
+
+The archive's actual structure is the three sweeps, and they are interleaved rather than separated: `SET_00NN`, `SET_01NN` and `SET_02NN` hold 246, 248 and 249 states and distribute across all six clusters in near-equal thirds. They are three repetitions of one operating-point grid, not three regions of it.
+
+### What distinguishes them physically
+
+| Quantity | new (18) | existing (743) | new range | existing range | Cohen d | p |
+|---|---|---|---|---|---|---|
+| **generation minus load (losses)** | **81.9 MW** | 304.2 MW | 70.7-89.8 | 69.4-606.8 | **-1.70** | 2.5e-07 |
+| total load | 3,728 MW | 3,305 MW | 2,883-4,500 | 2,331-5,583 | 0.75 | 1.3e-03 |
+| total load, reactive | 787 Mvar | 710 Mvar | 614-944 | 497-1,189 | 0.65 | 4.4e-03 |
+| total generation | 3,810 MW | 3,609 MW | 2,954-4,590 | 2,851-5,707 | 0.36 | 0.11 |
+| mean / minimum voltage | 1.05 / 0.98 pu | 1.04 / 0.98 pu | | | 0.29 / 0.22 | ns |
+| angle spread | 25.5 deg | 25.3 deg | 15.7-32.0 | 13.9-55.2 | 0.04 | ns |
+| generators online | 10 | 10 | | | | |
+
+The sharpest separator is **network losses**: the new batch occupies a narrow 71 to 90 MW band where the existing archive spans 69 to 607 MW. Everything else overlaps heavily. Voltages, angle spread and unit commitment are indistinguishable, and all ten machines are online in every state of both groups.
+
+So the new states are not a new operating regime. They are more heavily loaded points inside the same envelope, drawn from a much narrower loss band, sitting at the periphery of existing clusters rather than beyond them.
+
+That also explains the retrieval result without appealing to novelty. The existing states arrive in tight sweeps, with a mean within-family nearest-neighbour distance of **2.05** and as little as 1.03 for `SET_0007`, so a typical query has near-identical siblings to retrieve. The new batch has no sweep of its own, and its nearest existing neighbours fall in just two families: `SET_0001` for 10 of the 18 and `SET_0023` for 7, with one at `SET_0025`. Thin support here is a sampling artefact of how the archive was built, not evidence that the states are hard to estimate.
 
 ## Duplicate states
 
