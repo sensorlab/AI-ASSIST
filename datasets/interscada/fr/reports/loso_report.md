@@ -93,6 +93,27 @@ MAE over all records, and over the best-ranked half by each diagnostic.
 
 Disagreement among retrieved outcomes is again the only strong signal, as on interscada/pl and BUS39. Five diagnostics rank estimates worse than not sorting at all, so none of them should be shown as a confidence measure on this archive.
 
+### Support indices by state
+
+`support_by_state_interscada-fr_lines_only.csv` records, for every state, its coverage and the mean of each support index over its records, so states at the low end can be named rather than inferred. Grouped into deciles of effective sample size:
+
+| n_eff decile | states | median n_eff | median n_neighbors | coverage | MAE |
+|---|---|---|---|---|---|
+| 0 (lowest) | 131 | 2.22 | 93.4 | 100.00% | 0.0099 |
+| 1 | 130 | 3.56 | 91.6 | 99.91% | 0.0129 |
+| 2 | 130 | 5.06 | 93.5 | 100.00% | 0.0128 |
+| 3 | 131 | 6.16 | 91.9 | 100.00% | 0.0139 |
+| 4 | 130 | 7.87 | 91.8 | 100.00% | 0.0157 |
+| 5 | 130 | 10.06 | 94.2 | 100.00% | 0.0139 |
+| 6 | 131 | 12.55 | 95.1 | 100.00% | 0.0134 |
+| 7 | 130 | 15.80 | 93.0 | 100.00% | 0.0157 |
+| 8 | 130 | 19.94 | 95.7 | 100.00% | 0.0123 |
+| 9 (highest) | 131 | 26.46 | 96.5 | 100.00% | 0.0160 |
+
+Error is lowest in the deciles with the least effective support and highest in those with the most, the opposite ordering to interscada/pl. Coverage is flat throughout.
+
+The deciles are relative to this archive: these indices carry no units an operator could act on, so a low decile says a state's estimates rest on fewer effectively contributing neighbours than most, not that they are wrong.
+
 ## Critical-generator identification
 
 At each record's recorded fault location, candidate generators are ranked by `crit_gen_likelihood` and the top-ranked one is compared with the recorded outcome. On this dataset the per-record form of that question is close to meaningless, for two structural reasons, so the event-level result below is the one to read.
@@ -216,6 +237,7 @@ Error rose about 48%, but that figure mixes two changes: removing the twins, and
 - **Few severe contingencies.** 27 of 1,304 states hold a location below 0.20 s, so screening behaviour is barely exercised.
 - **Preprocessing is transductive.** The scaler is fitted and the index populated over all 1,304 states including the query; exclusion applies to retrieval, not preprocessing.
 - **Leave-one-state-out excludes only the query state.** Exact duplicates are now removed at preparation, but the control does not withhold merely-similar states. `ELES_BENCHMARK_DUPLICATE_RADIUS` exists for that and was not needed here: after deduplication the nearest-neighbour distribution has a clean gap, with nothing between 1e-6 and 1.25.
+- **Support indices are measured, not validated as confidence.** The risk-coverage table reports how each index orders estimates by error within this archive; the per-state deciles report where each state falls. Neither establishes that an index would identify a poor estimate on a different archive, and the two interscada datasets already order n_eff against error in opposite directions.
 - **The variant tag `lines_only` in artifact names is an artefact** of the `TOPOLOGY_VARIANT` default. This dataset has one topology column set and it was used correctly.
 
 ## Reproduction
@@ -232,6 +254,7 @@ Retrieval took 1,771 s for 1,304 states; the service builds in 3.6 s.
 | File | Content |
 |---|---|
 | `risk_coverage_interscada-fr_lines_only.csv` | risk-coverage curve per diagnostic |
+| `support_by_state_interscada-fr_lines_only.csv` | per-state coverage and support indices, with n_eff deciles |
 | `error_quantiles_interscada-fr_lines_only.csv` | absolute-error quantiles per estimate and support split |
 | `critical_location_interscada-fr_lines_only.csv` | most-critical-location selection |
 | `topk_location_interscada-fr_lines_only.csv` | top-1 and top-3 severity ranking with regret quantiles |

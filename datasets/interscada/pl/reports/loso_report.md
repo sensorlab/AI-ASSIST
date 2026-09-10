@@ -97,6 +97,27 @@ Each diagnostic sorts records from most to least trusted; the table gives MAE ov
 
 Disagreement among retrieved outcomes (`cct_weighted_std`) is the only strong signal. Four diagnostics rank estimates **worse than not sorting at all**, `neighborhood_compactness` and `distance_spread` most clearly, so neither should be shown to an operator as a confidence measure on this archive.
 
+### Support indices by state
+
+`support_by_state_interscada-pl_lines_only.csv` records, for every state, its coverage and the mean of each support index over its records, so states at the low end can be named rather than inferred. Grouped into deciles of effective sample size:
+
+| n_eff decile | states | median n_eff | median n_neighbors | coverage | MAE |
+|---|---|---|---|---|---|
+| 0 (lowest) | 77 | 2.01 | 36.2 | 98.68% | 0.0183 |
+| 1 | 76 | 3.23 | 38.8 | 98.93% | 0.0148 |
+| 2 | 76 | 4.13 | 39.5 | 99.48% | 0.0124 |
+| 3 | 76 | 5.09 | 44.1 | 99.60% | 0.0110 |
+| 4 | 76 | 6.48 | 41.9 | 99.58% | 0.0110 |
+| 5 | 76 | 7.98 | 44.2 | 99.46% | 0.0129 |
+| 6 | 76 | 11.32 | 44.9 | 99.37% | 0.0132 |
+| 7 | 76 | 15.49 | 47.5 | 99.56% | 0.0140 |
+| 8 | 76 | 22.05 | 52.3 | 99.56% | 0.0132 |
+| 9 (highest) | 76 | 29.26 | 54.5 | 99.35% | 0.0152 |
+
+Error is lowest in the middle deciles and higher at both ends: 0.0183 in the lowest, 0.0110 in the fourth, 0.0152 in the highest. Coverage is flat apart from the lowest two deciles.
+
+The deciles are relative to this archive: these indices carry no units an operator could act on, so a low decile says a state's estimates rest on fewer effectively contributing neighbours than most, not that they are wrong.
+
 ## Critical-generator identification
 
 At each record's recorded fault location, candidate generators are ranked by `crit_gen_likelihood` (raw, never-renormalised kernel mass, the only quantity comparable across generator groups) and the top-ranked candidate is compared with the recorded outcome. Stable records are a genuine eleventh class rather than an absence: the archive stores a stable outcome as a row with a null generator, the service groups those rows like any other, and the ranking can therefore name "stable" as the most likely result.
@@ -229,100 +250,34 @@ The service also ranks locations by `location_likelihood`, that is by retrieved 
 
 Against a uniform baseline of about 2% over 48 competing locations, ranking first 9.7% of the time is better than chance and still far too weak to present as a fault-location prediction. The last row is the one that matters operationally: the most likely location and the most critical location coincide in under 6% of states, because similarity says which locations have well-supported neighbours, not which fault is severe. This is why the fallback estimate built on the most likely location carries 5.6 times the error, and why the fault location has to be supplied as an input rather than inferred.
 
-## Are the new states different from the rest?
+## The September batch
 
-Yes, but not in the way a naive comparison suggests, and the distinction matters for how thin support should be read.
+The drop added one batch, `SET_0925`, of which 18 states survive deduplication. Measurements, without a mechanism attached.
 
-### The archive is built from sweeps, so raw nearest-neighbour distance is misleading
-
-The 761 states are three sweeps over the same operating-point grid, `SET_00NN`, `SET_01NN` and `SET_02NN`, each slot appearing once per sweep. A typical state therefore has two kinds of partner, and its nearest neighbour is almost always one of them:
-
-| Existing state's nearest ... | median distance |
-|---|---|
-| sibling in its own `SET` family | 1.48 |
-| same slot in another sweep | 2.27 |
-| anything outside its slot entirely | **3.19** |
-
-The `SET_0925` batch has no sweep of its own, so comparing it against the unrestricted median of 1.43 compares a state with a twin against one without. The like-for-like baseline is the third row: how far an existing state is from the archive once its own slot is excluded.
-
-### They sit on the edge of the cloud
-
-Both comparisons are worth stating, because they answer different questions and only together give the position.
-
-Against the plain distribution, where each existing state's nearest neighbour is another existing state, the batch is **outside**: the existing distances run from 0.028 to a **maximum of 6.818**, median 1.430, and **14 of the 18 new states exceed that maximum**, ten of them past 10. Only `Point_no. 3`, at 0.669, falls inside the bulk, and it is the survivor of the pair that deduplication broke up.
-
-Against the sibling-free baseline, which is the fair one, the batch is at **the edge rather than beyond it**:
+**Position.** Distance is Euclidean over the 169 standardised continuous features, topology columns excluded.
 
 | | median | spread |
 |---|---|---|
-| new (18) | 10.38 | 0.67 to 12.18 |
-| existing, sibling-free (743) | 3.19 | p90 10.75, p99 19.43, max 36.01 |
+| existing state to its nearest existing state | 1.43 | max 6.82 |
+| existing state, its own slot excluded | 3.19 | p90 10.75, max 36.01 |
+| new state to its nearest existing state | **10.38** | 0.67 to 12.18 |
 
-The median new state sits at roughly the existing **90th percentile**, six exceed it, none exceeds the 99th, and none approaches the maximum of 36.01. So a handful of existing slots are more isolated still, but the typical new state is as isolated as the most isolated tenth of the archive. Mann-Whitney p = 4.4e-06.
+14 of the 18 exceed the largest nearest-neighbour distance among existing states, 6.82. Six exceed the p90 of the slot-excluded distribution, none its p99. The archive is built as three sweeps over one operating-point grid, so an existing state's nearest neighbour is usually its own sibling, at median 1.48, or its counterpart in another sweep, at 2.27; the batch has no sweep of its own.
 
-The batch also leans on a very small part of the archive: `SET_0023 Point 3` is the nearest existing state for six of the eighteen and `SET_0001 Points 14-20` for eight more. Distances rise monotonically with point number, 0.669 at Point 3 to 12.181 at Point 18, which is the trajectory reading again: the sweep starts on an existing state and walks outward.
+Nearest existing neighbours concentrate on `SET_0023 Point 3` for six of the eighteen and `SET_0001 Points 14-20` for eight. Distance rises monotonically with point number, 0.669 at Point 3 to 12.181 at Point 18.
 
-### They do occupy a distinct corner of the feature space
+**Features.** Aggregates overlap: total generation, mean and minimum voltage, angle spread, and all ten machines online in both groups. Individually, 48 of the 169 features differ by more than one standard deviation and 90 by more than half. The largest are the loads at buses 28 and 29, both at Cohen d = 3.24, which roughly double, from 101 to 199 MW and from 139 to 272 MW. Total load differs by 424 MW, a net of larger movements in both directions: +134 MW at bus 29, +126 at bus 8, +98 at bus 28, -87 at bus 1.
 
-Aggregates suggest otherwise and should not be trusted here. Total generation, mean and minimum voltage, angle spread and unit commitment all overlap heavily, and all ten machines are online throughout both groups. But **48 of the 169 continuous features shift by more than one standard deviation**, and 90 by more than half. The largest are the loads at buses 28 and 29, both at Cohen d = 3.24, which roughly double, from 101 to 199 MW and from 139 to 272 MW, followed by several 345 kV bus angles at d near 3.2.
+**Support and error.**
 
-The totals match only because the movements cancel: +134 MW at bus 29, +126 at bus 8, +98 at bus 28, against -87 at bus 1. Same envelope in the sum, a different point in the space. Clustering agrees: under k-means the batch never forms a cluster of its own at any k from 2 to 6, reaching at most 13.6% of one, and sits at the periphery of the clusters it joins, at a mean distance to centroid of 9.86 against 7.55 for the members around it.
+| | new (18) | existing (743) |
+|---|---|---|
+| coverage | 98.77% | 99.37% |
+| n_neighbors | 20.2 | 45.9 |
+| n_eff | 3.91 | 10.87 |
+| per-state MAE | 0.0160 | 0.0136 (p = 0.25) |
 
-### Isolation explains the weight concentration, but not the coverage loss
-
-Bucketing existing states by sibling-free isolation separates what follows from distance alone from what does not:
-
-| Decile | isolation | coverage | n_neighbors | n_eff | MAE |
-|---|---|---|---|---|---|
-| 0 | 0.53 | 99.66% | 55.5 | 23.8 | 0.0097 |
-| 4 | 2.84 | 99.26% | 42.2 | 10.7 | 0.0146 |
-| 8 | 8.76 | 99.27% | 45.4 | 4.06 | 0.0116 |
-| 9 | 14.06 | 99.26% | 46.2 | 2.89 | 0.0133 |
-| **new batch** | **10.38** | **98.77%** | **20.2** | **3.93** | **0.0160** |
-
-`n_eff` tracks isolation closely, falling from 23.8 to 2.89 across the deciles, and the batch's 3.93 lands exactly where its isolation predicts: a distant query concentrates its kernel weight on few neighbours, and every isolated state does the same.
-
-`n_neighbors` does not follow. Isolated existing states keep about 46 neighbours in their group; the batch has 20.2, less than half what isolation alone predicts, and its coverage sits below even the most isolated decile.
-
-### Being on the edge costs accuracy, and the archive shows it independently
-
-Distance says how far the neighbours are, not whether they surround the query. The ratio between the offset to the neighbours' centroid and the mean distance to them separates the two: near 0 the query is enclosed and the estimate interpolates, near 1 every neighbour lies on one side and it extrapolates.
-
-Measured over the existing states alone, with no reference to the new batch, the cost is monotone:
-
-| Existing states by geometry | ratio | MAE | coverage | n_eff | n_neighbors |
-|---|---|---|---|---|---|
-| most surrounded fifth | 0.447 | **0.0111** | 99.58% | 18.2 | 48.6 |
-| second | 0.556 | 0.0114 | 99.36% | 13.4 | 45.2 |
-| middle | 0.649 | 0.0137 | 99.40% | 11.6 | 46.1 |
-| fourth | 0.748 | 0.0153 | 99.38% | 6.98 | 46.0 |
-| most on the edge | 0.858 | **0.0163** | 99.14% | 4.16 | 42.2 |
-
-**Error rises 47% from the most enclosed fifth of the archive to the most peripheral**, independently of the new batch. The new states have a median ratio of **0.843**, which places them in that last row, and their measured MAE of 0.0160 and n_eff of 3.91 match its 0.0163 and 4.16 almost exactly. Their accuracy is what their position predicts, no worse.
-
-Their `n_neighbors` is not: 20.2 against the 42.2 of existing edge states, and coverage 98.77% against 99.14%. That gap is the outcome disagreement below, not the geometry.
-
-Two practical consequences. Estimates for states on the edge of the sampled region are systematically weaker, so an archive extended by walking outward from existing points buys less than its size suggests. And the geometry is measurable at query time while the error is not: this ratio correlates with per-state error at Spearman 0.183 and is monotone across the buckets above, whereas mean neighbour distance correlates at **-0.147**, the wrong sign. That is consistent with the diagnostics table, where every `distance_*` measure ranks estimates worse than not sorting at all, and it suggests a geometry-based indicator would be worth more than the distance-based ones the service currently reports.
-
-### The residual is outcome disagreement
-
-`n_neighbors` counts retrieved states sharing the query's `(Location, Crit_gen)` group, so it falls when neighbours disagree about which machine goes critical. With the majority generator computed excluding the state's own slot, so the comparison stays like-for-like:
-
-| | agreement with the majority generator |
-|---|---|
-| existing, all | 35.3% |
-| existing, most isolated decile | 26.4% |
-| new batch | **22.7%** |
-
-Isolation accounts for most of that fall, and agreement correlates with isolation across existing states at Spearman rho = -0.29. The batch sits a further 3.7 points below even the most isolated existing states, which is the part distance does not explain.
-
-### Summary
-
-The batch sits **on the edge of the sampled cloud**, not outside it: beyond every existing state's own nearest-neighbour distance, but within the spread the archive already produces where the sweep structure supplies no twin.
-
-That position accounts for most of what is observed. **Weight concentration and accuracy are fully explained** by it: the batch's n_eff of 3.91 and MAE of 0.0160 match the existing edge quintile's 4.16 and 0.0163. What it does **not** explain is the group-membership and coverage deficit, 20.2 neighbours against 42.2 and 98.77% against 99.14%, which traces to a critical-generator map that differs from the archive's, consistent with the load shifted onto buses 28 and 29.
-
-The general lesson is about the archive rather than the batch: error grows steadily toward the edge of the sampled region, by 47% between the most enclosed and most peripheral fifths, so extending an archive outward from its existing points yields weaker estimates than its record count implies.
+**Outcomes.** With the majority critical generator per location computed over existing states excluding the state's own slot, records agreeing with it: 22.7% for the batch, 26.4% for the most isolated existing decile, 35.3% for existing states overall.
 
 
 ## Duplicate states
@@ -341,6 +296,7 @@ An earlier version of this report was computed with the duplicates in place. Rem
 - **Leave-one-state-out excludes only the query state.** Sweep points within a `SET` family are plausibly adjacent operating points and remain retrievable. There are no timestamps, so no temporal exclusion control is possible; the 0.01358 s MAE should be read as an upper bound on accuracy under near-duplicate support. Exact duplicates are removed at preparation, so what remains is genuinely similar rather than identical states.
 - **Preprocessing is transductive.** The scaler is fitted and the index populated over all 761 states including the query. Exclusion applies to retrieval, not to preprocessing.
 - **Class imbalance.** Generator classes span 417 to 13,394 records, so the aggregate top-1 rate is dominated by the largest classes; read the per-class table alongside it.
+- **Support indices are measured, not validated as confidence.** The risk-coverage table reports how each index orders estimates by error within this archive; the per-state deciles report where each state falls. Neither establishes that an index would identify a poor estimate on a different archive, and the two interscada datasets already order n_eff against error in opposite directions.
 - **The variant tag `lines_only` in artifact names is an artefact** of the `TOPOLOGY_VARIANT` default. This dataset has one topology column set and it was used correctly; only the filename is misleading.
 
 ## Reproduction
@@ -363,6 +319,7 @@ Artifacts, all regenerated by the commands above. Unless noted, they live in `da
 |---|---|
 | `risk_coverage_interscada-pl_lines_only.csv` | risk-coverage curve per diagnostic |
 | `critical_location_interscada-pl_lines_only.csv` | most-critical-location selection |
+| `support_by_state_interscada-pl_lines_only.csv` | per-state coverage and support indices, with n_eff deciles |
 | `error_quantiles_interscada-pl_lines_only.csv` | absolute-error quantiles per estimate and support split |
 | `topk_location_interscada-pl_lines_only.csv` | top-1 and top-3 severity ranking with regret quantiles |
 | `topk_screening_recall_interscada-pl_lines_only.csv` | share of unsafe locations captured at top-1 and top-3 |

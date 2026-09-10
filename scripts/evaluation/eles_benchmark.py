@@ -340,6 +340,39 @@ def _error_quantiles(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _support_by_state(df: pd.DataFrame) -> pd.DataFrame:
+    """Per-state support indices, so states with degraded support can be named rather than
+    inferred.
+
+    The risk-coverage table says which indices track error across the population; this says
+    which states sit at the bad end of them. Reported as measurements, not as confidence: an
+    estimate on a state in the lowest n_eff decile is not wrong, it rests on fewer effectively
+    contributing neighbours, which the diagnostics table shows is associated with higher error.
+
+    n_eff leads because it is the index that behaves: the risk-coverage results on both
+    interscada archives put the distance measures at or below the unsorted baseline.
+    """
+    scored = df.dropna(subset=["cct_weighted_per_location"])
+    if scored.empty:
+        return pd.DataFrame()
+    per_state = df.groupby("state").agg(
+        records=("cct_true", "size"),
+        coverage=("cct_weighted_per_location", lambda values: float(values.notna().mean())),
+        n_neighbors=("n_neighbors", "mean"),
+        n_eff=("n_eff", "mean"),
+        neighborhood_compactness=("neighborhood_compactness", "mean"),
+        distance_min=("distance_min", "mean"),
+        cct_weighted_std=("cct_weighted_std", "mean"),
+    )
+    error = (scored["cct_true"] - scored["cct_weighted_per_location"]).abs()
+    per_state["mae"] = error.groupby(scored["state"]).mean()
+    # Degraded is a decile cut, not a threshold with physical meaning: these indices have no
+    # units an operator could act on, so the useful statement is relative to the archive.
+    per_state["n_eff_decile"] = pd.qcut(per_state["n_eff"], 10, labels=False, duplicates="drop")
+    per_state["degraded_support"] = per_state["n_eff_decile"] == 0
+    return per_state.sort_values("n_eff").reset_index()
+
+
 def _topk_location_stats(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Top-k contingency screening: rank a state's locations by estimated severity.
 
@@ -575,6 +608,10 @@ def main() -> None:
     quantiles_path = risk_coverage_dir / f"error_quantiles_{safe_dataset}_{variant_tag}.csv"
     _error_quantiles(df).to_csv(quantiles_path, index=False)
     logger.info(f"Saved error quantiles to {quantiles_path}")
+
+    support_path = risk_coverage_dir / f"support_by_state_{safe_dataset}_{variant_tag}.csv"
+    _support_by_state(df).to_csv(support_path, index=False)
+    logger.info(f"Saved per-state support indices to {support_path}")
     print(rc.to_string(index=False))
 
 
