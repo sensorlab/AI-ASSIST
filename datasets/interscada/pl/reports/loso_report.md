@@ -231,74 +231,67 @@ Against a uniform baseline of about 2% over 48 competing locations, ranking firs
 
 ## Are the new states different from the rest?
 
-Yes, decisively, in the input space.
+Yes, but not in the way a naive comparison suggests, and the distinction matters for how thin support should be read.
 
-Nearest-neighbour distance to the 743 existing states, over 169 standardised continuous features:
+### The archive is built from sweeps, so raw nearest-neighbour distance is misleading
 
-| | median | mean | max |
-|---|---|---|---|
-| new (18) | **10.38** | 9.07 | 12.18 |
-| existing (743) | 1.43 | 1.49 | 6.82 |
+The 761 states are three sweeps over the same operating-point grid, `SET_00NN`, `SET_01NN` and `SET_02NN`, each slot appearing once per sweep. A typical state therefore has two kinds of partner, and its nearest neighbour is almost always one of them:
 
-Mann-Whitney U, one-sided, **p = 4.1e-11**, and **17 of 18 new states lie beyond the 95th percentile** of the existing states' own nearest-neighbour distances. Per feature, **57 of 137 continuous features (41.6%) shift significantly** after Holm correction, several at Cohen's d near 2.7, concentrated in loads 15 and 16 and the 345 kV bus voltage angles.
+| Existing state's nearest ... | median distance |
+|---|---|
+| sibling in its own `SET` family | 1.48 |
+| same slot in another sweep | 2.27 |
+| anything outside its slot entirely | **3.19** |
 
-The batch is a **trajectory, not a cloud**. Distance to the nearest existing state grows monotonically with the point number: Point 3 at 0.671, Point 4 at 3.69, rising to 11.86 at Point 20. Point 2 sat at exactly 0.000 and has been removed as a duplicate. It begins exactly on an existing operating point and walks away from the archive. With the higher mean loading (3,679 MW against 3,293 MW) this reads as a deliberate stress sweep rather than a fresh random sample.
+The `SET_0925` batch has no sweep of its own, so comparing it against the unrestricted median of 1.43 compares a state with a twin against one without. The like-for-like baseline is the third row: how far an existing state is from the archive once its own slot is excluded.
 
-**One new state duplicates an existing one exactly.** `SET_0925__Point_no.____2` matches `SET_0025__Point_no.____2` on all 216 load-flow columns and all 63 CCT and critical-generator outcomes. Either the sweep re-simulated its starting point deliberately, or a state was exported twice; worth confirming with the data provider.
+### On that baseline they are not outliers
 
-Retrieval support on the new states is unambiguously thinner, while the accuracy penalty is directionally consistent but underpowered at n = 18:
+| | median | spread |
+|---|---|---|
+| new (18) | 10.38 | 0.67 to 12.18 |
+| existing, sibling-free (743) | 3.19 | p90 10.75, p99 19.43, max 36.01 |
 
-| | new | existing | p |
-|---|---|---|---|
-| Per-state MAE | 0.01604 | 0.01355 | 0.249 |
-| `distance_min` | 3.32 | 1.98 | <0.0001 |
-| `n_neighbors` | 20.4 | 45.9 | <0.0001 |
-| `n_eff` | 3.91 | 10.87 | <0.0001 |
-| Coverage | 98.77% | 99.37% | - |
+Six of the eighteen exceed the existing 90th percentile, **none exceeds the 99th**, and none comes close to the maximum: the archive already holds sibling-free states three times more isolated than anything in the new batch. The difference is real, Mann-Whitney p = 4.4e-06, but it places the batch inside the existing distribution rather than beyond it.
 
-Under half the neighbours at nearly double the distance, for 18% higher error that does not reach significance. Support degrades before conditional accuracy does, which is the same ordering the ELES analysis reports.
+### They do occupy a distinct corner of the feature space
 
-### Do they form their own cluster?
+Aggregates suggest otherwise and should not be trusted here. Total generation, mean and minimum voltage, angle spread and unit commitment all overlap heavily, and all ten machines are online throughout both groups. But **48 of the 169 continuous features shift by more than one standard deviation**, and 90 by more than half. The largest are the loads at buses 28 and 29, both at Cohen d = 3.24, which roughly double, from 101 to 199 MW and from 139 to 272 MW, followed by several 345 kV bus angles at d near 3.2.
 
-No. Clustering the 761 states by k-means on the same standardised features, the new batch always lands inside existing clusters and never gets one of its own, at any k from 2 to 6.
+The totals match only because the movements cancel: +134 MW at bus 29, +126 at bus 8, +98 at bus 28, against -87 at bus 1. Same envelope in the sum, a different point in the space. Clustering agrees: under k-means the batch never forms a cluster of its own at any k from 2 to 6, reaching at most 13.6% of one, and sits at the periphery of the clusters it joins, at a mean distance to centroid of 9.86 against 7.55 for the members around it.
 
-| Cluster (k=6) | sweep 0 | sweep 1 | sweep 2 | `SET_0925` |
-|---|---|---|---|---|
-| 0 | 93 | 105 | 115 | 3 |
-| **2** | 38 | 33 | 24 | **15** |
-| 1, 3, 4, 5 | 115 | 110 | 110 | 0 |
+### Isolation explains the weight concentration, but not the coverage loss
 
-They do concentrate, 15 of 18 in one cluster, but reach at most **13.6%** of any cluster's membership. Within the clusters they join they sit further out than typical members, at a mean distance to centroid of 9.86 against 7.55 in cluster 2 and 7.33 against 4.67 in cluster 0, both inside the existing 95th percentile.
+Bucketing existing states by sibling-free isolation separates what follows from distance alone from what does not:
 
-The archive's actual structure is the three sweeps, and they are interleaved rather than separated: `SET_00NN`, `SET_01NN` and `SET_02NN` hold 246, 248 and 249 states and distribute across all six clusters in near-equal thirds. They are three repetitions of one operating-point grid, not three regions of it.
+| Decile | isolation | coverage | n_neighbors | n_eff | MAE |
+|---|---|---|---|---|---|
+| 0 | 0.53 | 99.66% | 55.5 | 23.8 | 0.0097 |
+| 4 | 2.84 | 99.26% | 42.2 | 10.7 | 0.0146 |
+| 8 | 8.76 | 99.27% | 45.4 | 4.06 | 0.0116 |
+| 9 | 14.06 | 99.26% | 46.2 | 2.89 | 0.0133 |
+| **new batch** | **10.38** | **98.77%** | **20.2** | **3.93** | **0.0160** |
 
-### What distinguishes them physically
+`n_eff` tracks isolation closely, falling from 23.8 to 2.89 across the deciles, and the batch's 3.93 lands exactly where its isolation predicts: a distant query concentrates its kernel weight on few neighbours, and every isolated state does the same.
 
-| Quantity | new (18) | existing (743) | new range | existing range | Cohen d | p |
-|---|---|---|---|---|---|---|
-| **generation minus load (losses)** | **81.9 MW** | 304.2 MW | 70.7-89.8 | 69.4-606.8 | **-1.70** | 2.5e-07 |
-| total load | 3,728 MW | 3,305 MW | 2,883-4,500 | 2,331-5,583 | 0.75 | 1.3e-03 |
-| total load, reactive | 787 Mvar | 710 Mvar | 614-944 | 497-1,189 | 0.65 | 4.4e-03 |
-| total generation | 3,810 MW | 3,609 MW | 2,954-4,590 | 2,851-5,707 | 0.36 | 0.11 |
-| mean / minimum voltage | 1.05 / 0.98 pu | 1.04 / 0.98 pu | | | 0.29 / 0.22 | ns |
-| angle spread | 25.5 deg | 25.3 deg | 15.7-32.0 | 13.9-55.2 | 0.04 | ns |
-| generators online | 10 | 10 | | | | |
+`n_neighbors` does not follow. Isolated existing states keep about 46 neighbours in their group; the batch has 20.2, less than half what isolation alone predicts, and its coverage sits below even the most isolated decile.
 
-The sharpest aggregate separator is **network losses**: the new batch occupies a narrow 71 to 90 MW band where the existing archive spans 69 to 607 MW. Voltages, angle spread and unit commitment are indistinguishable, and all ten machines are online in every state of both groups.
+### The residual is outcome disagreement
 
-**Those aggregates are misleading, and the totals match only because the shifts cancel.** Feature by feature the batch is far from ordinary: **48 of the 169 continuous features shift by more than one standard deviation** and 90 by more than half of one. The largest are the loads at buses 28 and 29, both at Cohen d = 3.24, which roughly double, from 101 to 199 MW and from 139 to 272 MW, followed by several 345 kV bus angles at d near 3.2. The ten largest carry 48.3% of the squared mean offset. The 424 MW gap in total load is a net figure over larger movements in both directions: +134 MW at bus 29, +126 at bus 8, +98 at bus 28, against -87 at bus 1. Same envelope in the sum, a different point in the space.
+`n_neighbors` counts retrieved states sharing the query's `(Location, Crit_gen)` group, so it falls when neighbours disagree about which machine goes critical. With the majority generator computed excluding the state's own slot, so the comparison stays like-for-like:
 
-That offset is what the distance metric sees, and it does not come from a handful of columns. Removing the most-separating features shrinks the gap without closing it:
+| | agreement with the majority generator |
+|---|---|
+| existing, all | 35.3% |
+| existing, most isolated decile | 26.4% |
+| new batch | **22.7%** |
 
-| Features dropped | new median NN | existing median NN | ratio |
-|---|---|---|---|
-| none (169) | 10.37 | 1.43 | **7.3x** |
-| top 10 (159 left) | 7.92 | 1.39 | 5.7x |
-| top 48 (121 left) | 4.69 | 1.18 | 4.0x |
+Isolation accounts for most of that fall, and agreement correlates with isolation across existing states at Spearman rho = -0.29. The batch sits a further 3.7 points below even the most isolated existing states, which is the part distance does not explain.
 
-**Their outcomes differ too, which is what coverage actually depends on.** Support is not proximity: a record is covered only when retrieved neighbours share its `(Location, Crit_gen)` combination. The new states' critical generator matches the location's majority generator among existing states in **23.8%** of records, against **36.3%** for the existing states themselves. So even the neighbours they do retrieve frequently disagree about which machine goes out of step, which is why `n_neighbors` falls from 45.6 to 20.2 and `n_eff` from 10.88 to 3.93.
+### Summary
 
-So the batch is a genuinely different operating condition, not a sampling gap: heavier load concentrated on particular buses, a different critical-generator map, and correspondingly thinner support. The tightness of the existing sweeps contributes, since a typical query has near-identical siblings to retrieve, with a mean within-family nearest-neighbour distance of **2.05** and as little as 1.03 for `SET_0007`, while the new batch has no sweep of its own and leans on two families, `SET_0001` for 10 of its 18 states and `SET_0023` for 7. But that is a second effect on top of a real difference, not an alternative explanation for it.
+Three findings, in descending confidence. The new states are **not unusually isolated** once the sweep structure is accounted for. Their **weight concentration is fully explained** by the isolation they do have. Their **group-membership and coverage deficits are not**: those trace to a critical-generator map that differs from the archive's, consistent with the load shifted onto buses 28 and 29.
+
 
 ## Duplicate states
 
