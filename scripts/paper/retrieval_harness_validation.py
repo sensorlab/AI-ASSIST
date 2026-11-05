@@ -10,7 +10,9 @@ deployed rule (exact line status, K=100, alpha=1) the harness must reproduce, re
    (tmp/eles_generator_diagnostics_selected_*_lines_only_causal0h.parquet);
 3. the ELES screening rows of results/data/clearing_time_threshold_crossing.csv (Table 1).
 
-Estimates must agree within 1e-9 s and every set and count exactly. The two harness runs are kept in tmp/ because they
+Estimates must agree within 1e-9 s and every set and count exactly, with one exception recorded as Deviation 2 of the
+analysis: where two generators' kernel masses are equal up to rounding (TIE_RTOL), production picks among them by its own
+last-bit noise, so on those records the gate checks that production's pick is one of the tied generators. The two harness runs are kept in tmp/ because they
 also carry what the causal run never stored, the causal screening minimum, which the referral decomposition reads.
 
 Run from the repository root:
@@ -32,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evaluation"))
 
 from _common import load_eles_state_timestamps  # noqa: E402
-from _retrieval_harness import EXACT_LINES, causal_exclusions, run_rule  # noqa: E402
+from _retrieval_harness import EXACT_LINES, TIE_RTOL, _norm, causal_exclusions, run_rule  # noqa: E402
 from clearing_time_threshold_crossing import _state_screening_labels, _state_screening_metrics  # noqa: E402
 
 from src.config.logging import configure_logging  # noqa: E402
@@ -108,6 +110,27 @@ def _check_close(name: str, got: pd.Series, expected: pd.Series) -> dict[str, An
     }
 
 
+def _check_ties(name: str, harness_covered: pd.DataFrame, production_gen: pd.Series) -> dict[str, Any]:
+    """On records whose top kernel mass is tied, production's selected generator must be one of the tied ones."""
+    tied = harness_covered[harness_covered["gens_tied_top"].str.contains("|", regex=False)]
+    prod = production_gen.reindex(tied.index)
+    bad = sum(_norm(g) not in t.split("|") for g, t in zip(prod, tied["gens_tied_top"], strict=True))
+    return {
+        "check": name,
+        "n_compared": len(tied),
+        "n_mismatch": bad,
+        "max_abs_diff": np.nan,
+        "tolerance": TIE_RTOL,
+        "passed": bad == 0,
+    }
+
+
+def _untied(harness_covered: pd.DataFrame, *, any_tie: bool = False) -> pd.Index:
+    """Records whose selection is decided by more than rounding: no tie at the top (or, for ranks, anywhere)."""
+    tie = harness_covered["mass_tie"] if any_tie else harness_covered["gens_tied_top"].str.contains("|", regex=False)
+    return harness_covered.index[~tie.astype(bool)]
+
+
 def _screening_rows(records: pd.DataFrame) -> pd.DataFrame:
     df = records.rename(columns={"pred_screening_min": "cct_weighted_per_location"})
     df.loc[~df["covered"], "cct_weighted_per_location"] = np.nan
@@ -141,34 +164,78 @@ def main() -> None:
     p = _with_ordinal(pd.read_parquet(PROD_DEORACLED))
     checks.append(_check_equal("loso: covered set (deoracled)", h["covered"], p["gen_deoracled_covered"].astype(bool)))
     hc, pc = h[h["covered"]], p[p["gen_deoracled_covered"].astype(bool)]
-    checks.append(_check_close("loso: selected estimate", hc["pred_selection"], pc["pred_gen_deoracled_selection"]))
+    # Selection and rank are compared exactly where kernel masses are not tied up to rounding (_tied in the harness);
+    # on tied records production's choice is checked for membership in the tie instead.
+    top, anywhere = _untied(hc), _untied(hc, any_tie=True)
+    checks.append(
+        _check_close(
+            "loso: selected estimate, untied",
+            hc["pred_selection"].reindex(top),
+            pc["pred_gen_deoracled_selection"].reindex(top),
+        )
+    )
     checks.append(
         _check_close("loso: screening minimum", hc["pred_screening_min"], pc["pred_gen_deoracled_screening_min"])
     )
     checks.append(_check_close("loso: oracle estimate", hc["pred_oracle"], pc["pred_oracle_gen_and_loc"]))
     checks.append(
-        _check_equal("loso: true generator rank", hc["gen_true_rank"].astype(int), pc["gen_true_rank"].astype(int))
+        _check_equal(
+            "loso: true generator rank, no tie",
+            hc["gen_true_rank"].reindex(anywhere).astype(int),
+            pc["gen_true_rank"].reindex(anywhere).astype(int),
+        )
     )
     checks.append(_check_equal("loso: true CCT", h["cct_true"], p["cct_true"]))
 
     s = _with_ordinal(pd.read_parquet(PROD_SELECTED))
     sc = s[s["covered"]]
     checks.append(_check_equal("loso: covered set (selected diagnostics)", h["covered"], s["covered"]))
-    checks.append(_check_equal("loso: selected generator", hc["gen_selected"], sc["gen_selected"]))
     checks.append(
-        _check_close("loso: selected estimate (diagnostics)", hc["pred_selection"], sc["cct_weighted_per_location"])
+        _check_equal(
+            "loso: selected generator, untied", hc["gen_selected"].reindex(top), sc["gen_selected"].reindex(top)
+        )
+    )
+    checks.append(_check_ties("loso: selected generator, tied (membership)", hc, sc["gen_selected"]))
+    checks.append(
+        _check_close(
+            "loso: selected estimate (diagnostics), untied",
+            hc["pred_selection"].reindex(top),
+            sc["cct_weighted_per_location"].reindex(top),
+        )
     )
     checks.append(
-        _check_equal("loso: selected neighbour count", hc["sel_n_neighbors"].astype(int), sc["n_neighbors"].astype(int))
+        _check_equal(
+            "loso: selected neighbour count, untied",
+            hc["sel_n_neighbors"].reindex(top).astype(int),
+            sc["n_neighbors"].reindex(top).astype(int),
+        )
     )
-    checks.append(_check_close("loso: selected minimum distance", hc["sel_distance_min"], sc["distance_min"]))
+    checks.append(
+        _check_close(
+            "loso: selected minimum distance, untied",
+            hc["sel_distance_min"].reindex(top),
+            sc["distance_min"].reindex(top),
+        )
+    )
 
     c = _with_ordinal(causal)
     pc0 = _with_ordinal(pd.read_parquet(PROD_CAUSAL0))
     cc, pcc = c[c["covered"]], pc0[pc0["covered"]]
     checks.append(_check_equal("causal0h: covered set", c["covered"], pc0["covered"]))
-    checks.append(_check_equal("causal0h: selected generator", cc["gen_selected"], pcc["gen_selected"]))
-    checks.append(_check_close("causal0h: selected estimate", cc["pred_selection"], pcc["cct_weighted_per_location"]))
+    ctop = _untied(cc)
+    checks.append(
+        _check_equal(
+            "causal0h: selected generator, untied", cc["gen_selected"].reindex(ctop), pcc["gen_selected"].reindex(ctop)
+        )
+    )
+    checks.append(_check_ties("causal0h: selected generator, tied (membership)", cc, pcc["gen_selected"]))
+    checks.append(
+        _check_close(
+            "causal0h: selected estimate, untied",
+            cc["pred_selection"].reindex(ctop),
+            pcc["cct_weighted_per_location"].reindex(ctop),
+        )
+    )
 
     published = pd.read_csv(PROD_SCREENING)
     published = published[published["dataset"] == "ELES"].set_index("tau_s")

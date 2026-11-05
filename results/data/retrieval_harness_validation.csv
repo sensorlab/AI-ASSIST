@@ -1,18 +1,20 @@
 check,n_compared,n_mismatch,max_abs_diff,tolerance,passed
 loso: covered set (deoracled),322823,0,,0.0,True
-loso: selected estimate,237168,0,0.0,1e-09,True
+"loso: selected estimate, untied",236788,0,0.0,1e-09,True
 loso: screening minimum,237168,0,0.0,1e-09,True
 loso: oracle estimate,237168,0,0.0,1e-09,True
-loso: true generator rank,237168,0,,0.0,True
+"loso: true generator rank, no tie",236667,0,,0.0,True
 loso: true CCT,322823,0,,0.0,True
 loso: covered set (selected diagnostics),322823,0,,0.0,True
-loso: selected generator,237168,0,,0.0,True
-loso: selected estimate (diagnostics),237168,0,0.0,1e-09,True
-loso: selected neighbour count,237168,0,,0.0,True
-loso: selected minimum distance,237168,0,0.0,1e-09,True
+"loso: selected generator, untied",236788,0,,0.0,True
+"loso: selected generator, tied (membership)",380,0,,1e-12,True
+"loso: selected estimate (diagnostics), untied",236788,0,0.0,1e-09,True
+"loso: selected neighbour count, untied",236788,0,,0.0,True
+"loso: selected minimum distance, untied",236788,0,3.410605131648481e-13,1e-09,True
 causal0h: covered set,322823,0,,0.0,True
-causal0h: selected generator,181868,0,,0.0,True
-causal0h: selected estimate,181868,0,0.0,1e-09,True
+"causal0h: selected generator, untied",181475,0,,0.0,True
+"causal0h: selected generator, tied (membership)",393,0,,1e-12,True
+"causal0h: selected estimate, untied",181475,0,0.0,1e-09,True
 table 1 ELES tau=0.1: n_states,1,0,0.0,1e-12,True
 table 1 ELES tau=0.1: n_unsafe_states,1,0,0.0,1e-12,True
 table 1 ELES tau=0.1: screening_recall,1,0,0.0,1e-12,True

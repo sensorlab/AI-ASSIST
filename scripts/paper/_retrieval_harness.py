@@ -35,7 +35,9 @@ from typing import Any, Final, cast
 import numpy as np
 import pandas as pd
 
+import src.domain.estimation.service as service_module
 from src.domain.estimation.service import EstimationService, _dataset_paths, _make_scaler_for_dataset
+from src.domain.estimation.weights import query_distances
 from src.services.qdrant.repository import RE_TOPO, QueryResult
 from src.services.sqlite_store import SqliteRecordStore
 
@@ -44,6 +46,9 @@ logger = logging.getLogger(__name__)
 DATASET: Final[str] = "eles/2026-06"
 ALPHA: Final[float] = 1.0
 N_NEIGHBORS: Final[int] = 100
+QUERY_CHUNK: Final[int] = 256
+DISTANCE_FEATURE: Final[str] = "_query_distance"
+TIE_RTOL: Final[float] = 1e-12
 # Topology keys available for ELES, by the name of their topology_cols_<variant>.json file.
 KEYS: Final[tuple[str, ...]] = ("lines_only", "full", "slovenia_only")
 # The key whose mismatches are reported for every rule: line status, the deployed key.
@@ -66,6 +71,12 @@ EXACT_LINES: Final[Rule] = Rule("exact_lines", "lines_only", 0)
 
 def _norm(value: Any) -> str:
     return str(value).strip().lower()
+
+
+def _tied(a: float, b: float) -> bool:
+    """Kernel masses equal up to rounding. Production's choice among such generators follows its own last-bit noise,
+    which depends on how pandas lays out each group, so the validation gate accepts any of them (TIE_RTOL)."""
+    return abs(a - b) <= TIE_RTOL * max(abs(a), abs(b))
 
 
 def _feature_map(topology_cols: Iterable[str], scaled_columns: Sequence[str]) -> list[tuple[str, str]]:
@@ -93,9 +104,10 @@ class BruteForceDatabase:
         self.key_columns = key_columns
         self.src_index: np.ndarray = lf_scaled.index.astype(str).to_numpy()
         self._position: dict[str, int] = {uid: i for i, uid in enumerate(self.src_index)}
-        vectors = lf_scaled.loc[:, self.embed_cols].to_numpy(dtype=np.float32, copy=True)
-        if np.isnan(vectors).any():
-            raise ValueError("states contain NaN values")
+        # Qdrant stores float32 and returns it upcast; holding the upcast copy avoids converting the corpus per query.
+        vectors = lf_scaled.loc[:, self.embed_cols].to_numpy(dtype=np.float32).astype(np.float64)
+        if not np.isfinite(vectors).all():
+            raise ValueError("states contain non-finite values")
         self.vectors: np.ndarray = vectors
         self.bits: dict[str, np.ndarray] = {
             key: lf_scaled.loc[:, cols].to_numpy(dtype=bool) for key, cols in key_columns.items()
@@ -128,13 +140,15 @@ class BruteForceDatabase:
             allowed &= self.hamming(state, self.rule.key) <= self.rule.max_hamming
 
         candidates = np.flatnonzero(allowed)
-        query = state.iloc[0][self.embed_cols].to_numpy(dtype=np.float32)
-        diff = self.vectors[candidates].astype(np.float64) - query.astype(np.float64)
-        sq = np.einsum("ij,ij->i", diff, diff)
+        query = state.iloc[0][self.embed_cols].to_numpy(dtype=np.float32).astype(np.float64)
+        sq = np.empty(len(candidates), dtype=np.float64)
+        for start in range(0, len(candidates), QUERY_CHUNK):  # bounded temporaries; each row's sum is unchanged
+            diff = self.vectors[candidates[start : start + QUERY_CHUNK]] - query
+            sq[start : start + QUERY_CHUNK] = np.einsum("ij,ij->i", diff, diff)
         order = np.lexsort((candidates, sq))[:k]
         chosen = candidates[order]
 
-        rows = pd.DataFrame(self.vectors[chosen].astype(np.float64), columns=self.embed_cols)
+        rows = pd.DataFrame(self.vectors[chosen], columns=self.embed_cols)
         rows.index = pd.Index(self.src_index[chosen], name=self.index_name)
         return QueryResult(scores=np.sqrt(sq[order]), rows=rows)
 
@@ -180,6 +194,10 @@ def load_corpus(data_dir: Path | None = None) -> Corpus:
 
 
 def build_service(corpus: Corpus, rule: Rule) -> tuple[EstimationService, BruteForceDatabase]:
+    # Neighbourhood compactness is a pairwise-distance diagnostic that no estimate, weight or kernel mass depends on,
+    # and it costs about 80% of a query once K binds (no filter, wide Hamming). It is switched off in this process
+    # only; retrieval_harness_validation.py runs with it off, so the gate covers the harness as used.
+    service_module._neighborhood_compactness = lambda *args, **kwargs: None
     db = BruteForceDatabase(corpus.lf_scaled, corpus.key_columns, rule)
     service = EstimationService(
         columns=list(corpus.lf.columns),
@@ -187,6 +205,23 @@ def build_service(corpus: Corpus, rule: Rule) -> tuple[EstimationService, BruteF
         tsa=corpus.tsa,
         db=db,  # type: ignore[arg-type]  # duck-typed stand-in for DatabaseQdrant
     )
+    production_query = service._query_neighbors
+
+    def narrow_query_neighbors(
+        state: Any, exclude_uids: Iterable[str], n_neighbors: int | None = None
+    ) -> tuple[pd.DataFrame, list[str], np.ndarray]:
+        # Production merges all 11,452 features onto every retrieved record and copies that frame at each groupby,
+        # which dominates a query once K binds. With compactness off, the features feed only the query distance, so
+        # each neighbour's distance is computed once here with production's function and passed on as the only
+        # feature against a zero query: sqrt(d * d) == d exactly in IEEE arithmetic, so weights are unchanged.
+        rows, embed_cols, X_query = production_query(state, exclude_uids, n_neighbors)
+        X_neighbors = rows[embed_cols].to_numpy(dtype=np.float64)
+        if not np.isfinite(X_neighbors).all():
+            raise ValueError("retrieved neighbours contain non-finite values")
+        distance = query_distances(X_query=X_query, X_neighbor=X_neighbors)
+        return pd.DataFrame({DISTANCE_FEATURE: distance}, index=rows.index), [DISTANCE_FEATURE], np.zeros((1, 1))
+
+    service._query_neighbors = narrow_query_neighbors  # type: ignore[method-assign]
     return service, db
 
 
@@ -289,8 +324,13 @@ def evaluate_states(
                 order = sorted(loc_pool, key=lambda g: loc_pool[g][0], reverse=True)
                 selected = loc_pool[order[0]][1]
                 stats = selected.summary.stats
+                masses = [loc_pool[g][0] for g in order]
                 row.update(
                     covered=True,
+                    gens_tied_top="|".join(
+                        sorted(g for g, m in zip(order, masses, strict=True) if _tied(m, masses[0]))
+                    ),
+                    mass_tie=any(_tied(a, b) for a, b in zip(masses[1:], masses[:-1], strict=True)),
                     n_candidate_gens=len(loc_pool),
                     gen_selected=order[0],
                     gen_true_rank=order.index(gen_true) + 1 if gen_true in loc_pool else -1,
