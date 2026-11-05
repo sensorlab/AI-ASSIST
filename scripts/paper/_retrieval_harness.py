@@ -59,11 +59,13 @@ LINE_KEY: Final[str] = "lines_only"
 class Rule:
     """A compatibility rule: candidates must differ from the query in at most `max_hamming` flags of `key`.
 
-    `key=None` admits every state (no filter). `max_hamming=0` is exact equality on the key."""
+    `key=None` admits every state (no filter). `max_hamming=0` is exact equality on the key. `alpha` is the kernel
+    bandwidth passed to production; 0 gives every neighbour weight 1 (uniform weights, analysis 03)."""
 
     name: str
     key: str | None
     max_hamming: int = 0
+    alpha: float = ALPHA
 
 
 EXACT_LINES: Final[Rule] = Rule("exact_lines", "lines_only", 0)
@@ -273,7 +275,7 @@ def evaluate_states(
         state = {k: (None if pd.isna(v) else v) for k, v in corpus.lf.iloc[row_of[uid]].items()}
         state_row: dict[str, Any] = {"state": uid, "query_error": None, "n_fallback_groups": 0}
         try:
-            by_loc = service.estimate_by_location(state=state, exclude_uids=excluded_uids, alpha=ALPHA)
+            by_loc = service.estimate_by_location(state=state, exclude_uids=excluded_uids, alpha=rule.alpha)
         except ValueError as exc:  # production raises when a generator group's kernel weights all underflow
             by_loc = {}
             state_row["query_error"] = str(exc)
@@ -289,7 +291,7 @@ def evaluate_states(
                     raise RuntimeError(f"excluded states returned by retrieval for query {uid}")
                 if report.summary.stats.weight_mass <= 0.0:
                     state_row["n_fallback_groups"] += 1
-                mass = service._raw_kernel_mass(report.per_neighbor, alpha=ALPHA)
+                mass = service._raw_kernel_mass(report.per_neighbor, alpha=rule.alpha)
                 loc_pool[_norm(gen_key)] = (mass, report)
 
         if retrieved:
