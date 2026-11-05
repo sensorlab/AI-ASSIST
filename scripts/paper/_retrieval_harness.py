@@ -60,12 +60,14 @@ class Rule:
     """A compatibility rule: candidates must differ from the query in at most `max_hamming` flags of `key`.
 
     `key=None` admits every state (no filter). `max_hamming=0` is exact equality on the key. `alpha` is the kernel
-    bandwidth passed to production; 0 gives every neighbour weight 1 (uniform weights, analysis 03)."""
+    bandwidth passed to production; 0 gives every neighbour weight 1 (uniform weights, analysis 03). `representation`
+    names an alternative distance from _representations.py (analysis 05); None keeps production's distance."""
 
     name: str
     key: str | None
     max_hamming: int = 0
     alpha: float = ALPHA
+    representation: str | None = None
 
 
 EXACT_LINES: Final[Rule] = Rule("exact_lines", "lines_only", 0)
@@ -208,6 +210,14 @@ def build_service(corpus: Corpus, rule: Rule) -> tuple[EstimationService, BruteF
         db=db,  # type: ignore[arg-type]  # duck-typed stand-in for DatabaseQdrant
     )
     production_query = service._query_neighbors
+    alternative = None
+    if rule.representation is not None:
+        import _representations
+
+        raw_columns = [c for c in corpus.lf.columns if not RE_TOPO.match(c)]
+        alternative, _ = _representations.build(
+            rule.representation, db.vectors, db.embed_cols, raw_columns, db.bits[LINE_KEY]
+        )
 
     def narrow_query_neighbors(
         state: Any, exclude_uids: Iterable[str], n_neighbors: int | None = None
@@ -220,7 +230,13 @@ def build_service(corpus: Corpus, rule: Rule) -> tuple[EstimationService, BruteF
         X_neighbors = rows[embed_cols].to_numpy(dtype=np.float64)
         if not np.isfinite(X_neighbors).all():
             raise ValueError("retrieved neighbours contain non-finite values")
-        distance = query_distances(X_query=X_query, X_neighbor=X_neighbors)
+        if alternative is None:
+            distance = query_distances(X_query=X_query, X_neighbor=X_neighbors)
+        else:
+            # A representation must not change which neighbours are retrieved, only their distances.
+            if len(rows) >= db.default_limit:
+                raise RuntimeError("K binds, so the neighbour set depends on the deployed distance")
+            distance = alternative(X_query, X_neighbors)
         return pd.DataFrame({DISTANCE_FEATURE: distance}, index=rows.index), [DISTANCE_FEATURE], np.zeros((1, 1))
 
     service._query_neighbors = narrow_query_neighbors  # type: ignore[method-assign]
