@@ -1,0 +1,17 @@
+quantity,estimate,ci_low,ci_high,resampling_unit
+n_hourly_slots,5136.0,,,
+n_empty_slots,743.0,,,
+n_gaps,361.0,,,
+n_single_slot_gaps,258.0,,,
+longest_gap_slots,124.0,,,
+n_gap_pairs_compared,360.0,,,
+n_gap_pairs_unmatched,1.0,,,
+n_empty_slots_in_unmatched_gaps,124.0,,,
+n_control_pairs,25630.0,,,
+key_differs_consecutive_hours,0.41478541304887123,,,
+key_differs_gap,0.7166666666666667,0.6676468444520665,0.763737949167397,calendar_day
+key_differs_matched_control,0.6287517784357127,0.6033523021348507,0.6530818620472036,calendar_day
+key_differs_difference,0.08791488823095395,0.036238803380944984,0.138869151931071,calendar_day
+n_differing_gap,2.808333333333333,2.446110163270974,3.189298911359915,calendar_day
+n_differing_matched_control,2.261310294406771,2.063135795213458,2.45909657982692,calendar_day
+n_differing_difference,0.5470230389265622,0.18438043357203376,0.9257582039683419,calendar_day
