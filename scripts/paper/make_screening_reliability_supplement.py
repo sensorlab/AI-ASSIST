@@ -275,7 +275,7 @@ def figure() -> str:
     c = c[c["family"] == "P0"]
     left = ["\\nextgroupplot[title={Referral load}, ylabel={States referred (\\%)}, ymin=0, ymax=100]"]
     right = [
-        "\\nextgroupplot[title={Missed unsafe states}, ylabel={Unsafe states not referred (\\%)}, ymin=0,"
+        "\\nextgroupplot[title={Missed unsafe states}, ylabel={Missed (\\% of unsafe)}, ymin=0,"
         " legend style={at={(-0.14,-0.30)}, anchor=north}]"
     ]
     for dataset, availability, name in ARMS:
