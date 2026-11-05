@@ -321,24 +321,31 @@ def evaluate(
     full = st["full"].to_numpy()
     n = len(st)
     margins = {alpha: _margins(st, alpha, fold, ts) for alpha in ALPHAS}
-    for alpha, (m2, _) in margins.items():
-        q_inf = int((full & np.isinf(m2)).sum())
-        q_fin = m2[full & np.isfinite(m2)]
+    r = st["r"].to_numpy()
+    for alpha, (m2, m3) in margins.items():
         logger.info(
-            f"{dataset} {availability} alpha={alpha:g}: P2 margin median {np.median(q_fin) if len(q_fin) else np.nan:.4f} s, "
-            f"{q_inf} fully covered states with no finite margin (burn-in)"
+            f"{dataset} {availability} alpha={alpha:g}: P2 margin median {np.median(m2[full & np.isfinite(m2)]):.4f} s, "
+            f"{int((full & np.isinf(m2)).sum())} fully covered states with no finite margin (burn-in)"
         )
-        rows.append(
-            {
-                "dataset": dataset,
-                "availability": availability,
-                "analysis": "margin",
-                "policy": "P2",
-                "alpha": alpha,
-                "quantity": "states_without_finite_margin",
-                "estimate": q_inf,
-            }
-        )
+        for name, m in (("P2", m2), ("P3", m3)):
+            finite = full & np.isfinite(m)
+            # Not pre-specified (Deviation 1): the event the margin bounds directly, y < yhat - q, among calibrated states.
+            for quantity, value in (
+                ("states_without_finite_margin", int((full & np.isinf(m)).sum())),
+                ("median_margin_s", float(np.median(m[finite]))),
+                ("exceedance_rate", float((r[finite] > m[finite]).mean())),
+            ):
+                rows.append(
+                    {
+                        "dataset": dataset,
+                        "availability": availability,
+                        "analysis": "margin",
+                        "policy": name,
+                        "alpha": alpha,
+                        "quantity": quantity,
+                        "estimate": value,
+                    }
+                )
 
     for tau in THRESHOLDS:
         if dataset == "ELES" and tau == 0.10:
