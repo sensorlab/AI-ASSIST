@@ -101,14 +101,18 @@ def _count(col: str) -> Stat:
 
 
 def _bootstrap(
-    arrays: dict[str, np.ndarray], stats: dict[str, Stat], clusters: np.ndarray | None, rng: np.random.Generator
+    arrays: dict[str, np.ndarray],
+    stats: dict[str, Stat],
+    clusters: np.ndarray | None,
+    rng: np.random.Generator,
+    n_resamples: int = N_BOOTSTRAP,
 ) -> dict[str, tuple[float, float]]:
     """Percentile 95% intervals. clusters=None resamples states; otherwise whole clusters (state cluster codes)."""
     n = len(next(iter(arrays.values())))
     codes = np.arange(n) if clusters is None else clusters
     n_clusters = int(codes.max()) + 1
-    samples = {name: np.empty(N_BOOTSTRAP) for name in stats}
-    for b in range(N_BOOTSTRAP):
+    samples = {name: np.empty(n_resamples) for name in stats}
+    for b in range(n_resamples):
         draws = np.bincount(rng.integers(0, n_clusters, size=n_clusters), minlength=n_clusters)
         w = draws[codes].astype(np.float64)
         for name, stat in stats.items():
