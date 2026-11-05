@@ -21,14 +21,14 @@ OUTPUT_PATH: Final[Path] = PROJECT_DIR / "results" / "tables" / "compatibility_f
 # Loosest to strictest, as in the Methods.
 LABELS: Final[dict[str, str]] = {
     "no_filter": "No filter",
-    "domestic_only": "Slovenian lines only",
+    "domestic_only": "Slovenian only",
     "hamming_32": "$h \\le 32$",
     "hamming_16": "$h \\le 16$",
     "hamming_8": "$h \\le 8$",
     "hamming_4": "$h \\le 4$",
     "hamming_2": "$h \\le 2$",
     "hamming_1": "$h \\le 1$",
-    "exact_lines": "Exact line status (deployed)",
+    "exact_lines": "Exact (deployed)",
     "all_switching": "All switching flags",
 }
 AVAILABILITY: Final[tuple[str, str]] = ("retrospective", "causal_lag0")
@@ -85,8 +85,8 @@ def render(df: pd.DataFrame) -> str:
 
     rc = "Retro. & Causal"
     coverage = _tabular(
-        "& & \\multicolumn{2}{c}{Record coverage (\\%)} & \\multicolumn{2}{c}{Complete states (\\%)} "
-        "& \\multicolumn{2}{c}{$\\Delta$MAE vs exact (ms)} & \\multicolumn{2}{c}{Other line status (\\%)} \\\\\n"
+        "& & \\multicolumn{2}{c}{Records covered (\\%)} & \\multicolumn{2}{c}{Complete states (\\%)} "
+        "& \\multicolumn{2}{c}{$\\Delta$MAE (ms)} & \\multicolumn{2}{c}{Other lines (\\%)} \\\\\n"
         "\\cmidrule(lr){3-4}\\cmidrule(lr){5-6}\\cmidrule(lr){7-8}\\cmidrule(lr){9-10}\n"
         f"Definition & Candidates & {rc} & {rc} & {rc} & {rc} \\\\",
         coverage_rows,
