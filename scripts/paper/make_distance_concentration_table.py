@@ -1,8 +1,10 @@
-"""Supplementary table for Note S3: distance concentration and uniform against kernel weights (R2.10a).
+"""Supplementary tables for Note S3: distance concentration, uniform against kernel weights (R2.10a) and alternative
+representations (R2.10b, R2.11).
 
-Writes results/tables/distance_concentration.tex (two tabular bodies, after the markers "% geometry" and "% weights"),
-from results/data/distance_concentration.csv and results/data/eles_uniform_weights.csv. The caption lives in the
-manuscript; the generated block is inlined there between begin/end markers.
+Writes results/tables/distance_concentration.tex (three tabular bodies, after the markers "% geometry", "% weights" and
+"% representations"), from results/data/distance_concentration.csv, eles_uniform_weights.csv, eles_representations.csv
+and founding_assumption_representations.csv. The captions live in the manuscript; each generated block is inlined
+there between begin/end markers.
 
 Run from the repository root:
     uv run python scripts/paper/make_distance_concentration_table.py
@@ -89,9 +91,78 @@ def weights() -> str:
     return _tabular("lrrrr", header, rows)
 
 
+REPRESENTATIONS: Final[tuple[str, ...]] = ("deployed", "pca90", "pca99", "slovenian", "l1")
+
+
+def representations() -> str:
+    d = pd.read_csv(DATA_DIR / "eles_representations.csv")
+    facts = d[d["availability"].isna()].set_index(["representation", "quantity"])["estimate"]
+    point = d[d["resampling_unit"] == "state"].drop_duplicates(["availability", "quantity"])
+    point = point.set_index(["availability", "quantity"])["estimate"]  # deployed rows repeat once per comparison
+    decision = d[d["quantity"].str.startswith("decision_")].set_index(["representation", "availability"])
+    q2 = pd.read_csv(DATA_DIR / "founding_assumption_representations.csv").set_index(["representation", "quantity"])[
+        "estimate"
+    ]
+
+    def cells(fn) -> str:
+        return " & ".join(fn(r) for r in REPRESENTATIONS)
+
+    def metric(availability: str, quantity: str, fmt) -> str:
+        return cells(lambda r: fmt(point[availability, quantity.format(r=r)]))
+
+    def signed(x: float) -> str:
+        return f"${'-' if x < 0 else '+'}${abs(1000 * x):.2f}"
+
+    def diff(availability: str) -> tuple[str, str]:
+        def est(r: str) -> str:
+            return "--" if r == "deployed" else signed(decision.loc[(r, availability), "estimate"])
+
+        def ci(r: str) -> str:
+            if r == "deployed":
+                return "--"
+            x = decision.loc[(r, availability)]
+            return f"({signed(x['ci_low'])}, {signed(x['ci_high'])})"
+
+        return cells(est), cells(ci)
+
+    ms = lambda x: f"{1000 * x:.1f}"  # noqa: E731
+    pct = lambda x: f"{100 * x:.2f}"  # noqa: E731
+    count = lambda x: f"{int(x):,}"  # noqa: E731
+    retro, causal = diff("retrospective"), diff("causal_lag0")
+    rows = [
+        "Distance dimensions & " + cells(lambda r: f"{int(q2[r, 'n_dimensions']):,}") + " \\\\",
+        "Scale constant & "
+        + cells(lambda r: "1" if r == "deployed" else f"{facts[r, 'bandwidth_constant']:.3g}")
+        + " \\\\",
+        "\\midrule",
+        "\\multicolumn{6}{l}{\\emph{Retrospective}} \\\\",
+        "MAE (ms) & " + metric("retrospective", "mae_{r}", ms) + " \\\\",
+        "\\quad difference (ms) & " + retro[0] + " \\\\",
+        "\\quad 95\\% CI & " + retro[1] + " \\\\",
+        "Critical generator identified (\\%) & " + metric("retrospective", "top1_{r}", pct) + " \\\\",
+        "Referral load, \\qty{200}{\\ms} (\\%) & " + metric("retrospective", "referral_load_{r}_200ms", pct) + " \\\\",
+        "Missed unsafe, \\qty{200}{\\ms} & " + metric("retrospective", "missed_unsafe_{r}_200ms", count) + " \\\\",
+        "\\midrule",
+        "\\multicolumn{6}{l}{\\emph{Causal}} \\\\",
+        "MAE (ms) & " + metric("causal_lag0", "mae_{r}", ms) + " \\\\",
+        "\\quad difference (ms) & " + causal[0] + " \\\\",
+        "\\quad 95\\% CI & " + causal[1] + " \\\\",
+        "Missed unsafe, \\qty{200}{\\ms} & " + metric("causal_lag0", "missed_unsafe_{r}_200ms", count) + " \\\\",
+        "\\midrule",
+        "\\multicolumn{6}{l}{\\emph{Distance against $|\\Delta\\mathrm{CCT}|$ within a slice}} \\\\",
+        "Spearman $\\rho$, mean & " + cells(lambda r: f"{q2[r, 'spearman_mean']:.3f}") + " \\\\",
+        "Nearest 100, reduction against random (\\%) & "
+        + cells(lambda r: f"{q2[r, 'reduction_vs_random_pct']:.1f}")
+        + " \\\\",
+    ]
+    return _tabular("lrrrrr", ["& Deployed & PCA 90\\% & PCA 99\\% & Slovenian & L1 \\\\"], rows)
+
+
 def main() -> None:
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT_PATH.write_text(f"{NOTE}\n% geometry\n{geometry()}\n% weights\n{weights()}\n")
+    OUTPUT_PATH.write_text(
+        f"{NOTE}\n% geometry\n{geometry()}\n% weights\n{weights()}\n% representations\n{representations()}\n"
+    )
     print(OUTPUT_PATH.read_text())
 
 
