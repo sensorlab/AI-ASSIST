@@ -248,6 +248,22 @@ def build_service(corpus: Corpus, rule: Rule) -> tuple[EstimationService, BruteF
         return pd.DataFrame({DISTANCE_FEATURE: distance}, index=rows.index), [DISTANCE_FEATURE], np.zeros((1, 1))
 
     service._query_neighbors = narrow_query_neighbors  # type: ignore[method-assign]
+
+    # Retrieval and the TSA fetch do not depend on alpha, so a query evaluated at several alphas in a row (analysis
+    # 06) reuses them: one entry, keyed on everything the enriched neighbours depend on. Production's weighting
+    # writes onto copies, so the cached frame is never changed.
+    enriched = service._query_enriched_neighbors
+    last: dict[str, Any] = {}
+
+    def cached_enriched_neighbors(
+        state: Any, exclude_uids: Iterable[str], n_neighbors: int | None = None
+    ) -> tuple[pd.DataFrame, list[str], np.ndarray]:
+        key = (tuple(state.items()), tuple(exclude_uids), n_neighbors)
+        if last.get("key") != key:
+            last.update(key=key, value=enriched(state, exclude_uids, n_neighbors))
+        return last["value"]
+
+    service._query_enriched_neighbors = cached_enriched_neighbors  # type: ignore[method-assign]
     return service, db
 
 
@@ -281,13 +297,16 @@ def tsa_by_state(corpus: Corpus) -> dict[str, pd.DataFrame]:
 
 
 def evaluate_states(
-    corpus: Corpus, rule: Rule, items: list[WorkItem]
+    corpus: Corpus, rule: Rule, items: list[WorkItem], alphas: Sequence[float] | None = None
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], np.ndarray]:
     """Per-record estimates, per-state retrieval facts and per-flag line mismatch counts for one rule.
 
     Records: `covered` means at least one candidate generator at the record's own location (the coverage both
     production producers use). `pred_selection` is the estimate of the generator with the largest raw kernel mass,
-    `pred_screening_min` the minimum over candidate generators, `pred_oracle` the recorded generator's estimate."""
+    `pred_screening_min` the minimum over candidate generators, `pred_oracle` the recorded generator's estimate.
+
+    With `alphas`, every query is evaluated at each of them in turn (retrieval reused), and record and state rows
+    carry an `alpha` column; without, `rule.alpha` alone and the rows are unchanged."""
     service, db = build_service(corpus, rule)
     records: list[dict[str, Any]] = []
     states: list[dict[str, Any]] = []
@@ -295,81 +314,86 @@ def evaluate_states(
     flag_mismatch = np.zeros(n_line_flags, dtype=np.int64)
 
     row_of = {str(u): i for i, u in enumerate(corpus.lf.index)}
+    alpha_list = list(alphas) if alphas is not None else [rule.alpha]
     for uid, tsa_subset, excluded_uids in items:
         state = {k: (None if pd.isna(v) else v) for k, v in corpus.lf.iloc[row_of[uid]].items()}
-        state_row: dict[str, Any] = {"state": uid, "query_error": None, "n_fallback_groups": 0}
-        try:
-            by_loc = service.estimate_by_location(
-                state=state, exclude_uids=excluded_uids, n_neighbors=rule.n_neighbors, alpha=rule.alpha
-            )
-        except ValueError as exc:  # production raises when a generator group's kernel weights all underflow
-            by_loc = {}
-            state_row["query_error"] = str(exc)
-
-        excluded = {_norm(u) for u in excluded_uids}
-        pools: dict[str, dict[str, tuple[float, Any]]] = {}
-        retrieved: set[str] = set()
-        for loc_key, loc_group in by_loc.items():
-            loc_pool = pools.setdefault(_norm(loc_key), {})
-            retrieved.update(str(s) for s in loc_group.included_state_ids)
-            for gen_key, report in loc_group.per_crit_gen.items():
-                if excluded & {_norm(s) for s in report.included_state_ids}:
-                    raise RuntimeError(f"excluded states returned by retrieval for query {uid}")
-                if report.summary.stats.weight_mass <= 0.0:
-                    state_row["n_fallback_groups"] += 1
-                mass = service._raw_kernel_mass(report.per_neighbor, alpha=rule.alpha)
-                loc_pool[_norm(gen_key)] = (mass, report)
-
-        if retrieved:
-            # The query's own bits from the corpus row: the scaler is fitted on the corpus, so this equals the bits
-            # of the re-scaled query without paying for a second transform.
-            pos = db.positions(sorted(retrieved))
-            differs = db.bits[LINE_KEY][pos] != db.bits[LINE_KEY][row_of[uid]][None, :]
-            line_hamming = differs.sum(axis=1)
-            flag_mismatch += differs.sum(axis=0)
-            state_row.update(
-                n_retrieved_states=len(pos),
-                n_retrieved_line_mismatch=int((line_hamming > 0).sum()),
-                mean_line_hamming=float(line_hamming.mean()),
-                max_line_hamming=int(line_hamming.max()),
-            )
-        else:
-            state_row.update(n_retrieved_states=0, n_retrieved_line_mismatch=0)
-        states.append(state_row)
-
-        for record_ordinal, (_, rec) in enumerate(tsa_subset.iterrows()):
-            loc_true, gen_true = _norm(rec["Location"]), _norm(rec["Crit_gen"])
-            row: dict[str, Any] = {
-                "state": uid,
-                "record_ordinal": record_ordinal,
-                "cct_true": float(rec["CCT"]),
-                "loc_true": loc_true,
-                "gen_true": gen_true,
-                "covered": False,
-            }
-            loc_pool = pools.get(loc_true)
-            if loc_pool:
-                order = sorted(loc_pool, key=lambda g: loc_pool[g][0], reverse=True)
-                selected = loc_pool[order[0]][1]
-                stats = selected.summary.stats
-                masses = [loc_pool[g][0] for g in order]
-                row.update(
-                    covered=True,
-                    gens_tied_top="|".join(
-                        sorted(g for g, m in zip(order, masses, strict=True) if _tied(m, masses[0]))
-                    ),
-                    mass_tie=any(_tied(a, b) for a, b in zip(masses[1:], masses[:-1], strict=True)),
-                    n_candidate_gens=len(loc_pool),
-                    gen_selected=order[0],
-                    gen_true_rank=order.index(gen_true) + 1 if gen_true in loc_pool else -1,
-                    pred_selection=float(selected.summary.cct_weighted),
-                    pred_screening_min=min(float(r.summary.cct_weighted) for _, r in loc_pool.values()),
-                    pred_oracle=float(loc_pool[gen_true][1].summary.cct_weighted) if gen_true in loc_pool else None,
-                    sel_n_neighbors=stats.n,
-                    sel_n_eff=stats.n_eff,
-                    sel_distance_min=stats.distances.get("min"),
+        for alpha in alpha_list:
+            tag = {} if alphas is None else {"alpha": alpha}
+            state_row: dict[str, Any] = {"state": uid, "query_error": None, "n_fallback_groups": 0, **tag}
+            try:
+                by_loc = service.estimate_by_location(
+                    state=state, exclude_uids=excluded_uids, n_neighbors=rule.n_neighbors, alpha=alpha
                 )
-            records.append(row)
+            except ValueError as exc:  # production raises when a generator group's kernel weights all underflow
+                by_loc = {}
+                state_row["query_error"] = str(exc)
+
+            excluded = {_norm(u) for u in excluded_uids}
+            pools: dict[str, dict[str, tuple[float, Any]]] = {}
+            retrieved: set[str] = set()
+            for loc_key, loc_group in by_loc.items():
+                loc_pool = pools.setdefault(_norm(loc_key), {})
+                retrieved.update(str(s) for s in loc_group.included_state_ids)
+                for gen_key, report in loc_group.per_crit_gen.items():
+                    if excluded & {_norm(s) for s in report.included_state_ids}:
+                        raise RuntimeError(f"excluded states returned by retrieval for query {uid}")
+                    if report.summary.stats.weight_mass <= 0.0:
+                        state_row["n_fallback_groups"] += 1
+                    mass = service._raw_kernel_mass(report.per_neighbor, alpha=alpha)
+                    loc_pool[_norm(gen_key)] = (mass, report)
+
+            if retrieved:
+                # The query's own bits from the corpus row: the scaler is fitted on the corpus, so this equals the bits
+                # of the re-scaled query without paying for a second transform.
+                pos = db.positions(sorted(retrieved))
+                differs = db.bits[LINE_KEY][pos] != db.bits[LINE_KEY][row_of[uid]][None, :]
+                line_hamming = differs.sum(axis=1)
+                if alpha == alpha_list[0]:  # the neighbour set does not depend on alpha; count it once
+                    flag_mismatch += differs.sum(axis=0)
+                state_row.update(
+                    n_retrieved_states=len(pos),
+                    n_retrieved_line_mismatch=int((line_hamming > 0).sum()),
+                    mean_line_hamming=float(line_hamming.mean()),
+                    max_line_hamming=int(line_hamming.max()),
+                )
+            else:
+                state_row.update(n_retrieved_states=0, n_retrieved_line_mismatch=0)
+            states.append(state_row)
+
+            for record_ordinal, (_, rec) in enumerate(tsa_subset.iterrows()):
+                loc_true, gen_true = _norm(rec["Location"]), _norm(rec["Crit_gen"])
+                row: dict[str, Any] = {
+                    "state": uid,
+                    "record_ordinal": record_ordinal,
+                    "cct_true": float(rec["CCT"]),
+                    "loc_true": loc_true,
+                    "gen_true": gen_true,
+                    "covered": False,
+                    **tag,
+                }
+                loc_pool = pools.get(loc_true)
+                if loc_pool:
+                    order = sorted(loc_pool, key=lambda g: loc_pool[g][0], reverse=True)
+                    selected = loc_pool[order[0]][1]
+                    stats = selected.summary.stats
+                    masses = [loc_pool[g][0] for g in order]
+                    row.update(
+                        covered=True,
+                        gens_tied_top="|".join(
+                            sorted(g for g, m in zip(order, masses, strict=True) if _tied(m, masses[0]))
+                        ),
+                        mass_tie=any(_tied(a, b) for a, b in zip(masses[1:], masses[:-1], strict=True)),
+                        n_candidate_gens=len(loc_pool),
+                        gen_selected=order[0],
+                        gen_true_rank=order.index(gen_true) + 1 if gen_true in loc_pool else -1,
+                        pred_selection=float(selected.summary.cct_weighted),
+                        pred_screening_min=min(float(r.summary.cct_weighted) for _, r in loc_pool.values()),
+                        pred_oracle=float(loc_pool[gen_true][1].summary.cct_weighted) if gen_true in loc_pool else None,
+                        sel_n_neighbors=stats.n,
+                        sel_n_eff=stats.n_eff,
+                        sel_distance_min=stats.distances.get("min"),
+                    )
+                records.append(row)
     return records, states, flag_mismatch
 
 
@@ -379,10 +403,12 @@ def run_rule(
     *,
     n_jobs: int,
     limit: int = 0,
+    alphas: Sequence[float] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
     """Evaluate every state of `rule.dataset` under one rule, in worker processes that each load the corpus once.
 
-    `exclusions=None` is leave-one-state-out; otherwise the per-query withheld states (e.g. causal_exclusions())."""
+    `exclusions=None` is leave-one-state-out; otherwise the per-query withheld states (e.g. causal_exclusions()).
+    `alphas` evaluates every query at each alpha, rows tagged by an `alpha` column (evaluate_states())."""
     import joblib
 
     corpus = load_corpus(dataset=rule.dataset)
@@ -395,15 +421,20 @@ def run_rule(
     del corpus
 
     chunks = [work[i::n_jobs] for i in range(n_jobs) if work[i::n_jobs]]
-    results = joblib.Parallel(n_jobs=len(chunks))(joblib.delayed(_run_chunk)(rule, chunk) for chunk in chunks)
+    results = joblib.Parallel(n_jobs=len(chunks))(joblib.delayed(_run_chunk)(rule, chunk, alphas) for chunk in chunks)
     records = pd.DataFrame([r for chunk_records, _, _ in results for r in chunk_records])
     states = pd.DataFrame([s for _, chunk_states, _ in results for s in chunk_states])
     mismatch = pd.Series(np.sum([m for _, _, m in results], axis=0), index=flag_names, name="n_retrieved_mismatch")
     order = {uid: i for i, uid in enumerate(uids)}
-    records = records.sort_values(["state", "record_ordinal"], key=lambda s: s.map(order) if s.name == "state" else s)
-    states = states.sort_values("state", key=lambda s: s.map(order))
+    by = [] if alphas is None else ["alpha"]
+    records = records.sort_values(
+        [*by, "state", "record_ordinal"], key=lambda s: s.map(order) if s.name == "state" else s
+    )
+    states = states.sort_values([*by, "state"], key=lambda s: s.map(order) if s.name == "state" else s)
     return records.reset_index(drop=True), states.reset_index(drop=True), mismatch
 
 
-def _run_chunk(rule: Rule, items: list[WorkItem]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], np.ndarray]:
-    return evaluate_states(load_corpus(dataset=rule.dataset), rule, items)
+def _run_chunk(
+    rule: Rule, items: list[WorkItem], alphas: Sequence[float] | None = None
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], np.ndarray]:
+    return evaluate_states(load_corpus(dataset=rule.dataset), rule, items, alphas)
