@@ -413,7 +413,8 @@ def run_rule(
 
     corpus = load_corpus(dataset=rule.dataset)
     by_state = tsa_by_state(corpus)
-    uids = [str(u) for u in corpus.lf.index if str(u) in by_state]
+    # A state missing from `exclusions` is not evaluated (analysis 06 runs the inner states of an outer fold).
+    uids = [str(u) for u in corpus.lf.index if str(u) in by_state and (exclusions is None or str(u) in exclusions)]
     if limit:
         uids = uids[:limit]
     work = [(uid, by_state[uid], exclusions[uid] if exclusions is not None else [uid]) for uid in uids]

@@ -78,13 +78,22 @@ def decision(rows: pd.DataFrame) -> dict[str, Any]:
     return {"resampling_unit": w["resampling_unit"], "ci_low": w["ci_low"], "ci_high": w["ci_high"], "verdict": verdict}
 
 
-def compare(kernel: pd.DataFrame, uniform: pd.DataFrame, units: dict[str, np.ndarray | None], availability: str):
+def compare(
+    kernel: pd.DataFrame,
+    uniform: pd.DataFrame,
+    units: dict[str, np.ndarray | None],
+    availability: str,
+    same_coverage: bool = True,
+):
+    """Paired comparison of two record sets. Errors and top-1 are paired on the records both cover; screening uses each
+    arm's own coverage. `same_coverage` (analyses 03, 05) stops if coverage differs; analysis 06 compares settings
+    whose coverage may differ (K binds on BUS39)."""
     key = ["state", "record_ordinal"]
     m = kernel.merge(uniform, on=key, suffixes=("_k", "_u"), validate="1:1")
-    if not m["covered_k"].equals(m["covered_u"]):
+    if same_coverage and not m["covered_k"].equals(m["covered_u"]):
         raise ValueError(f"{availability}: coverage differs between alpha = 1 and alpha = 0")
     states = pd.Index(kernel["state"].drop_duplicates())
-    cov = m[m["covered_k"]]
+    cov = m[m["covered_k"] & m["covered_u"]]
     rows: list[dict[str, Any]] = []
 
     def point(quantity: str, value: float) -> None:
@@ -124,7 +133,9 @@ def compare(kernel: pd.DataFrame, uniform: pd.DataFrame, units: dict[str, np.nda
         t = round(1000 * tau)
         for arm, col in (("kernel", "k"), ("uniform", "u")):
             sf = _state_frame(
-                m.rename(columns={f"pred_screening_min_{col}": "est", "covered_k": "cov", "cct_true_k": "cct_true"}),
+                m.rename(
+                    columns={f"pred_screening_min_{col}": "est", f"covered_{col}": "cov", "cct_true_k": "cct_true"}
+                ),
                 "est",
                 "cov",
                 tau,
