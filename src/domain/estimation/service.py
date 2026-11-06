@@ -775,7 +775,11 @@ class EstimationService:
             distance_var = float(np.sum(qw_norm * (qds - distance_mean) ** 2))
             if distance_var > 0:
                 covariance = float(np.sum(qw_norm * (qds - distance_mean) * (c - cct_weighted)))
-                cct_distance_correlation = covariance / float(np.sqrt(distance_var * cct_weighted_std**2))
+                # Product of square roots, not root of the product: two tiny variances (a very peaked kernel) would
+                # underflow to zero as a product.
+                denominator = float(np.sqrt(distance_var)) * cct_weighted_std
+                if denominator > 0:
+                    cct_distance_correlation = covariance / denominator
 
         # Weighted 10th/90th percentile of CCT - a shape-aware complement to
         # cct_weighted_std, which assumes symmetric spread; an outlier neighbor could

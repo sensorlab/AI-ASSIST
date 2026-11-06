@@ -298,6 +298,12 @@ class EstimationServiceEndpointTests(unittest.TestCase):
         service.estimate_by_generator({"x": 0.0}, exclude_uids=[], n_neighbors=7)
         self.assertEqual(db.last_limit, 7)
 
+    def test_cct_distance_correlation_survives_underflowing_variances(self):
+        # At alpha=700 the farther neighbour's normalized weight is ~1e-304, so both weighted variances are ~1e-304
+        # and their product underflows to zero; the correlation must still come out (+1 for two points), not raise.
+        by_location = _service().estimate_by_location({"x": 0.0}, exclude_uids=[], alpha=700.0)
+        self.assertAlmostEqual(by_location["L1"].per_crit_gen["G1"].summary.stats.cct_distance_correlation, 1.0)
+
     def test_estimate_by_location_nests_location_then_generator_and_uses_group_weights(self):
         service = _service()
 
