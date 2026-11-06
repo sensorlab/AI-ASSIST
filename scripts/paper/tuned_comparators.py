@@ -82,9 +82,9 @@ UNTUNED: Final[dict[str, dict[str, str]]] = {
         "hist_gradient_boosting": "hist_gradient_boosting",
     },
 }
-VERDICTS: Final[dict[str, str]] = {
-    "kernel_improves": "retrieval_better",
-    "uniform_improves": "retrieval_worse",
+VERDICTS: Final[dict[str, str]] = {  # decision()'s labels, read for the first arm of a paired comparison
+    "kernel_improves": "better",
+    "uniform_improves": "worse",
     "negligible": "negligible",
     "no_difference": "no_material_difference",
 }
@@ -246,9 +246,15 @@ def timing(n_jobs: int) -> None:
 
 
 def paired_rows(
-    dataset: str, common: pd.DataFrame, a: str, b: str, units: dict[str, np.ndarray | None]
+    dataset: str,
+    common: pd.DataFrame,
+    a: str,
+    b: str,
+    units: dict[str, np.ndarray | None],
+    decide: bool | None = None,
 ) -> pd.DataFrame:
-    """MAE(a) - MAE(b) on the common records, per resampling unit, plus the decision row."""
+    """MAE(a) - MAE(b) on the common records, per resampling unit, plus a decision row reading the rule for `a`
+    (by default only when `a` is retrieval, analysis 08's rule; analysis 09 decides other pairs too)."""
     states = pd.Index(common["state"].drop_duplicates())
     g = (
         common.assign(ae_a=(common[a] - common["cct_true"]).abs(), ae_b=(common[b] - common["cct_true"]).abs(), n=1.0)
@@ -274,9 +280,9 @@ def paired_rows(
             }
         )
     out = pd.DataFrame(rows)
-    if a == "retrieval":
+    if decide if decide is not None else a == "retrieval":
         # decision() credits the second arm when (second - first) is positive; give it (b - a) so that a positive
-        # value means retrieval has the lower error.
+        # value means `a` has the lower error.
         flipped = out.assign(estimate=-out["estimate"], ci_low=-out["ci_high"], ci_high=-out["ci_low"])
         d = decision(flipped)
         out = pd.concat(
@@ -286,7 +292,7 @@ def paired_rows(
                     [
                         {
                             "dataset": dataset,
-                            "quantity": f"decision_retrieval_vs_{b}_{VERDICTS[d['verdict']]}",
+                            "quantity": f"decision_{a}_vs_{b}_{VERDICTS[d['verdict']]}",
                             "resampling_unit": d["resampling_unit"],
                             "decides": True,
                             "estimate": est,

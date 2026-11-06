@@ -66,7 +66,8 @@ class Rule:
     `key=None` admits every state (no filter). `max_hamming=0` is exact equality on the key. `alpha` is the kernel
     bandwidth passed to production; 0 gives every neighbour weight 1 (uniform weights, analysis 03). `representation`
     names an alternative distance from _representations.py (analysis 05); None keeps production's distance.
-    `n_neighbors` is K and `dataset` the corpus (analysis 06)."""
+    `n_neighbors` is K and `dataset` the corpus (analysis 06). `scaler_fit_states` fits the feature scaler on those
+    states only instead of all of them (analysis 09, historically fitted preprocessing)."""
 
     name: str
     key: str | None
@@ -75,6 +76,7 @@ class Rule:
     representation: str | None = None
     n_neighbors: int = N_NEIGHBORS
     dataset: str = DATASET
+    scaler_fit_states: tuple[str, ...] | None = None
 
 
 EXACT_LINES: Final[Rule] = Rule("exact_lines", "lines_only", 0)
@@ -176,14 +178,27 @@ class Corpus:
     key_raw_columns: dict[str, list[str]]  # the same flags under their raw names, aligned with key_columns
 
 
-def load_corpus(data_dir: Path | None = None, dataset: str = DATASET) -> Corpus:
-    """Load and scale a dataset exactly as build_estimation_service() does."""
+def fit_scaler(scaler: Any, lf: pd.DataFrame, fit_states: Sequence[str] | None) -> pd.DataFrame:
+    """Scale every state, fitting on all of them (production) or only on `fit_states`."""
+    if fit_states is None:
+        return cast(pd.DataFrame, scaler.fit_transform(lf))
+    mask = lf.index.astype(str).isin(set(fit_states))
+    if mask.sum() != len(set(fit_states)):
+        raise ValueError(f"{len(set(fit_states)) - int(mask.sum())} fit states are not in the corpus")
+    scaler.fit(lf[mask])
+    return cast(pd.DataFrame, scaler.transform(lf))
+
+
+def load_corpus(
+    data_dir: Path | None = None, dataset: str = DATASET, fit_states: Sequence[str] | None = None
+) -> Corpus:
+    """Load and scale a dataset exactly as build_estimation_service() does (or fit the scaler on `fit_states`)."""
     data_dir = data_dir or Path(os.environ.get("DATA_DIR", "./datasets"))
     eles = dataset == DATASET
     lf_path, tsa_path, _ = _dataset_paths(data_dir, dataset, topology_variant=LINE_KEY if eles else None)
     lf = cast(pd.DataFrame, pd.read_pickle(lf_path))
     scaler = _make_scaler_for_dataset(dataset)
-    lf_scaled = cast(pd.DataFrame, scaler.fit_transform(lf))
+    lf_scaled = fit_scaler(scaler, lf, fit_states)
     scaler.n_jobs = None  # see build_estimation_service(): dispatch only, never the arithmetic
 
     key_columns: dict[str, list[str]] = {}
@@ -411,7 +426,7 @@ def run_rule(
     `alphas` evaluates every query at each alpha, rows tagged by an `alpha` column (evaluate_states())."""
     import joblib
 
-    corpus = load_corpus(dataset=rule.dataset)
+    corpus = load_corpus(dataset=rule.dataset, fit_states=rule.scaler_fit_states)
     by_state = tsa_by_state(corpus)
     # A state missing from `exclusions` is not evaluated (analysis 06 runs the inner states of an outer fold).
     uids = [str(u) for u in corpus.lf.index if str(u) in by_state and (exclusions is None or str(u) in exclusions)]
@@ -438,4 +453,4 @@ def run_rule(
 def _run_chunk(
     rule: Rule, items: list[WorkItem], alphas: Sequence[float] | None = None
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], np.ndarray]:
-    return evaluate_states(load_corpus(dataset=rule.dataset), rule, items, alphas)
+    return evaluate_states(load_corpus(dataset=rule.dataset, fit_states=rule.scaler_fit_states), rule, items, alphas)

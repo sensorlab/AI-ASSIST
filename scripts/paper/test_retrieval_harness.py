@@ -8,7 +8,8 @@ from qdrant_client import QdrantClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _retrieval_harness import BruteForceDatabase, Rule, causal_exclusions  # noqa: E402
+from _retrieval_harness import BruteForceDatabase, Rule, causal_exclusions, fit_scaler  # noqa: E402
+from sklearn.preprocessing import StandardScaler  # noqa: E402
 
 from src.services.qdrant.repository import DatabaseQdrant  # noqa: E402
 
@@ -84,6 +85,27 @@ class CausalExclusionTests(unittest.TestCase):
         ts = pd.Series(pd.to_datetime(["2024-01-01 00:00", "2024-01-01 00:30", "2024-01-01 01:00"]))
         ts.index = ["a", "b", "c"]
         self.assertEqual(sorted(causal_exclusions(ts, 1)["c"]), ["b", "c"])
+
+
+class ScalerFitTests(unittest.TestCase):
+    def setUp(self):
+        # The last two states would move the fitted mean a long way if they were used.
+        self.lf = pd.DataFrame({"x": [0.0, 2.0, 100.0, 300.0]}, index=pd.Index([1, 2, 3, 4], name="state"))
+
+    def test_default_fits_on_every_state(self):
+        scaled = fit_scaler(StandardScaler().set_output(transform="pandas"), self.lf, None)
+        self.assertAlmostEqual(float(scaled["x"].mean()), 0.0)
+
+    def test_fit_states_alone_set_the_scaler_and_every_state_is_transformed(self):
+        scaler = StandardScaler().set_output(transform="pandas")
+        scaled = fit_scaler(scaler, self.lf, ("1", "2"))
+        self.assertEqual(float(scaler.mean_[0]), 1.0)
+        self.assertEqual(len(scaled), 4)
+        self.assertEqual(list(scaled["x"].iloc[:2]), [-1.0, 1.0])
+
+    def test_unknown_fit_state_is_an_error(self):
+        with self.assertRaises(ValueError):
+            fit_scaler(StandardScaler(), self.lf, ("1", "9"))
 
 
 if __name__ == "__main__":
