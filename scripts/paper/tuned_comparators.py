@@ -8,7 +8,7 @@ MAE on the inner held-out records; the best, first-listed on ties, is refitted o
 and predicts the outer fold. Features, preprocessing and the location median are scripts/evaluation/ml_benchmark.py's.
 
 Modes:
-    timing   time each model on ELES outer fold 0 and project the full run (stop point 2)
+    timing   time the tree ensembles on ELES outer fold 0, run its boosting tuning for real, project the full run
     run      fit everything (resumable, per dataset, model and fold under tmp/tuned_comparators/) and write the CSV
 
 Run from the repository root:
@@ -59,12 +59,12 @@ N_BOOTSTRAP: Final[int] = 1000
 LABEL_RESOLUTION: Final[float] = 0.010
 BUDGETS: Final[tuple[str | float, ...]] = ("sqrt", 0.1, 0.3, 1.0)  # dropped from the end by the fallback
 LEAVES: Final[tuple[int, ...]] = (1, 5)
+# Deviation 1: iterations are tuned by early stopping on the inner held-out states, up to HGB_MAX_ITER.
 HGB_GRID: Final[list[dict[str, Any]]] = [
-    {"learning_rate": lr, "max_leaf_nodes": leaves, "max_iter": iters}
-    for lr in (0.05, 0.1, 0.2)
-    for leaves in (31, 127, 255)
-    for iters in (300, 1000)
+    {"learning_rate": lr, "max_leaf_nodes": leaves} for lr in (0.05, 0.1, 0.2) for leaves in (31, 127, 255)
 ]
+HGB_MAX_ITER: Final[int] = 1000
+HGB_PATIENCE: Final[int] = 10
 TREE_MODELS: Final[tuple[str, ...]] = ("extra_trees", "random_forest")
 MODELS: Final[tuple[str, ...]] = (*TREE_MODELS, "hist_gradient_boosting")
 TIMING_SUBSAMPLE: Final[float] = 0.1
@@ -102,11 +102,24 @@ def grid(model: str, n_dropped: int = 0) -> list[dict[str, Any]]:
 
 def make(model: str, config: dict[str, Any], *, n_estimators: int, n_jobs: int) -> Any:
     if model == "hist_gradient_boosting":
+        params = {"max_iter": HGB_MAX_ITER, "early_stopping": False, **config}
         return HistGradientBoostingRegressor(
-            loss="absolute_error", l2_regularization=1e-3, early_stopping=False, random_state=SEED, **config
+            loss="absolute_error", l2_regularization=1e-3, n_iter_no_change=HGB_PATIENCE, random_state=SEED, **params
         )
     cls = ExtraTreesRegressor if model == "extra_trees" else RandomForestRegressor
     return cls(n_estimators=n_estimators, n_jobs=n_jobs, random_state=SEED, **config)
+
+
+def tune_one(model: str, config: dict[str, Any], X_tr, y_tr, X_va, y_va, n_jobs: int) -> tuple[dict[str, Any], float]:
+    """Fit one grid configuration on the inner training part; return the configuration to refit and its inner MAE.
+    Boosting stops early on the inner held-out states and the refit takes the iteration count it reached."""
+    if model == "hist_gradient_boosting":
+        est = make(model, {**config, "early_stopping": True}, n_estimators=0, n_jobs=n_jobs)
+        est.fit(X_tr, y_tr, X_val=X_va, y_val=y_va)
+        config = {**config, "max_iter": int(est.n_iter_)}
+    else:
+        est = make(model, config, n_estimators=TUNING_TREES, n_jobs=n_jobs).fit(X_tr, y_tr)
+    return config, float(np.mean(np.abs(est.predict(X_va) - np.asarray(y_va))))
 
 
 def select(scores: list[float]) -> int:
@@ -155,19 +168,20 @@ def fit_fold(
     inner_tr, inner_va = inner_split(groups, train_idx)
     pre = make_preprocessor(_categorical(X))
     X_tr, X_va = pre.fit_transform(X.iloc[inner_tr]), pre.transform(X.iloc[inner_va])
-    scores, seconds = [], []
+    tuned, scores, seconds = [], [], []
     for config in configs:
         t = time.time()
-        est = make(model, config, n_estimators=TUNING_TREES, n_jobs=n_jobs).fit(X_tr, y.iloc[inner_tr])
-        scores.append(float(np.mean(np.abs(est.predict(X_va) - y.iloc[inner_va].to_numpy()))))
+        fitted, score = tune_one(model, config, X_tr, y.iloc[inner_tr], X_va, y.iloc[inner_va], n_jobs)
+        tuned.append(fitted)
+        scores.append(score)
         seconds.append(time.time() - t)
-        logger.info(f"{name}: {config} inner MAE {scores[-1]:.5f} ({seconds[-1]:.0f} s)")
+        logger.info(f"{name}: {fitted} inner MAE {scores[-1]:.5f} ({seconds[-1]:.0f} s)")
     del X_tr, X_va
     best = select(scores)
     pre = make_preprocessor(_categorical(X))
     X_train, X_test = pre.fit_transform(X.iloc[train_idx]), pre.transform(X.iloc[test_idx])
     t = time.time()
-    est = make(model, configs[best], n_estimators=FINAL_TREES, n_jobs=n_jobs).fit(X_train, y.iloc[train_idx])
+    est = make(model, tuned[best], n_estimators=FINAL_TREES, n_jobs=n_jobs).fit(X_train, y.iloc[train_idx])
     refit_s = time.time() - t
     pd.DataFrame(
         {
@@ -179,15 +193,19 @@ def fit_fold(
     ).to_parquet(pred_path, index=False)
     log_path.write_text(
         json.dumps(
-            {"configs": configs, "inner_mae": scores, "seconds": seconds, "chosen": best, "refit_seconds": refit_s}
+            {"configs": tuned, "inner_mae": scores, "seconds": seconds, "chosen": best, "refit_seconds": refit_s}
         )
     )
 
 
 def timing(n_jobs: int) -> None:
-    """Time each model on a subsample of ELES outer fold 0's inner training set and project the full run."""
+    """Time the tree ensembles on a subsample of ELES outer fold 0's inner training set, run the real boosting tuning
+    and refit on that fold (deviation 1; reused by the full run), and project the full run."""
     X, y, groups = load(DATASETS["ELES"])
-    train_idx, _ = next(iter(group_k_fold_indices(groups, n_splits=N_SPLITS)))
+    slug = CONFIGS["ELES"]["slug"]
+    folds = list(group_k_fold_indices(groups, n_splits=N_SPLITS))
+    check_folds(groups, folds, pd.read_parquet(PROJECT_DIR / "tmp" / f"ml_benchmark_predictions-{slug}.parquet"))
+    train_idx, test_idx = folds[0]
     inner_tr, _ = inner_split(groups, train_idx)
     states = groups.iloc[inner_tr].unique()
     keep = set(np.random.default_rng(SEED).choice(states, size=int(TIMING_SUBSAMPLE * len(states)), replace=False))
@@ -214,9 +232,11 @@ def timing(n_jobs: int) -> None:
             0.3: per_feature * 0.3 * p,
             1.0: per_feature * p,
         }
-    t = time.time()
-    make("hist_gradient_boosting", HGB_GRID[0], n_estimators=0, n_jobs=n_jobs).fit(X_sub, y.iloc[sub])
-    hgb_300 = (time.time() - t) * scale
+    del X_sub
+    name = f"{slug}_hist_gradient_boosting_fold0"
+    fit_fold(name, "hist_gradient_boosting", X, y, groups, train_idx, test_idx, HGB_GRID, n_jobs)
+    log = json.loads((RUN_DIR / f"{name}.json").read_text())
+    hgb_fold = sum(log["seconds"]) + log["refit_seconds"]
     rows = []
     for n_dropped in range(len(BUDGETS)):
         total = 0.0
@@ -224,8 +244,7 @@ def timing(n_jobs: int) -> None:
             fits = sum(per_fit[model][c["max_features"]] for c in grid(model, n_dropped))
             refit = max(per_fit[model][c["max_features"]] for c in grid(model, n_dropped)) * 3 / (1 - INNER_HOLDOUT)
             total += N_SPLITS * (fits + refit)
-        hgb = sum(hgb_300 * c["max_iter"] / 300 * (2 if c["max_leaf_nodes"] > 31 else 1) for c in HGB_GRID)
-        total += N_SPLITS * (hgb + hgb_300 * 1000 / 300 * 2 / (1 - INNER_HOLDOUT))
+        total += N_SPLITS * hgb_fold
         rows.append(
             {
                 "n_budgets_dropped": n_dropped,
@@ -235,7 +254,9 @@ def timing(n_jobs: int) -> None:
         )
     out = pd.DataFrame(rows)
     print(json.dumps({m: {str(k): round(v) for k, v in d.items()} for m, d in per_fit.items()}, indent=1))
-    print(f"hist_gradient_boosting, 300 iterations: {hgb_300:.0f} s per inner fit")
+    print(
+        f"hist_gradient_boosting, outer fold 0 tuning and refit: {hgb_fold:.0f} s; chosen {log['configs'][log['chosen']]}"
+    )
     print(out.to_string(index=False))
     fits = out[out["eles_hours"] <= PROJECTION_LIMIT_H]
     print(

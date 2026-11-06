@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-from tuned_comparators import check_folds, grid, select  # noqa: E402
+from tuned_comparators import check_folds, grid, make, select, tune_one  # noqa: E402
 
 
 class GridTests(unittest.TestCase):
@@ -20,7 +20,26 @@ class GridTests(unittest.TestCase):
 
     def test_boosting_grid_ignores_the_fallback(self):
         self.assertEqual(grid("hist_gradient_boosting", 3), grid("hist_gradient_boosting"))
-        self.assertEqual(len(grid("hist_gradient_boosting")), 18)
+        self.assertEqual(len(grid("hist_gradient_boosting")), 9)
+
+
+class EarlyStoppingTests(unittest.TestCase):
+    def test_the_refit_reproduces_the_early_stopped_fit_it_was_scored_on(self):
+        rng = np.random.default_rng(0)
+        X = rng.normal(size=(400, 5))
+        y = X[:, 0] + rng.normal(scale=2.0, size=400)  # noisy, so validation loss stops improving early
+        config, score = tune_one(
+            "hist_gradient_boosting",
+            {"learning_rate": 0.2, "max_leaf_nodes": 31},
+            X[:300],
+            y[:300],
+            X[300:],
+            y[300:],
+            n_jobs=1,
+        )
+        self.assertLess(config["max_iter"], 1000)
+        refit = make("hist_gradient_boosting", config, n_estimators=0, n_jobs=1).fit(X[:300], y[:300])
+        self.assertAlmostEqual(float(np.mean(np.abs(refit.predict(X[300:]) - y[300:]))), score, places=12)
 
 
 class SelectTests(unittest.TestCase):
