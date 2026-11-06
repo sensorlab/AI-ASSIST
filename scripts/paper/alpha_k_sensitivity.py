@@ -106,8 +106,8 @@ def assert_folds_closed(states: pd.DataFrame, group_of: pd.Series, folds: list[f
         raise AssertionError("a retrieved neighbour differs from its query in line status")
 
 
-def describe(records: pd.DataFrame, states: pd.DataFrame) -> dict[str, float]:
-    """Q1 quantities for one setting."""
+def describe(records: pd.DataFrame, states: pd.DataFrame | None = None) -> dict[str, float]:
+    """Q1 quantities for one setting; the underflow counts need the per-state frame and are left out without it."""
     cov = records[records["covered"].astype(bool)]
     err = (cov["pred_selection"] - cov["cct_true"]).abs()
     out: dict[str, float] = {
@@ -117,9 +117,10 @@ def describe(records: pd.DataFrame, states: pd.DataFrame) -> dict[str, float]:
         "mae": float(err.mean()),
         **{f"abs_error_q{int(100 * q)}": float(err.quantile(q)) for q in QUANTILES},
         "top1": float((cov["gen_selected"] == cov["gen_true"]).mean()),
-        "n_fallback_groups": float(states["n_fallback_groups"].sum()),
-        "n_query_errors": float(states["query_error"].notna().sum()),
     }
+    if states is not None:
+        out["n_fallback_groups"] = float(states["n_fallback_groups"].sum())
+        out["n_query_errors"] = float(states["query_error"].notna().sum())
     for tau in THRESHOLDS:
         t = round(1000 * tau)
         sf = _state_frame(records.rename(columns={"pred_screening_min": "est", "covered": "cov"}), "est", "cov", tau)
