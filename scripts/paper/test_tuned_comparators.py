@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-from tuned_comparators import check_folds, grid, make, select, tune_one  # noqa: E402
+from tuned_comparators import check_folds, grid, make, select, tune_one, variants  # noqa: E402
 
 
 class GridTests(unittest.TestCase):
@@ -17,6 +17,12 @@ class GridTests(unittest.TestCase):
         self.assertEqual(budgets(3), ["sqrt"])
         with self.assertRaises(ValueError):
             grid("random_forest", 4)
+
+    def test_bus39_adds_the_full_tree_grid_only_when_the_fallback_reduced_it(self):
+        self.assertEqual([sfx for sfx, _ in variants("BUS39", 2)], ["", "_fullgrid"])
+        self.assertEqual(variants("BUS39", 2)[1][1], ("extra_trees", "random_forest"))
+        self.assertEqual(len(variants("BUS39", 0)), 1)
+        self.assertEqual(len(variants("ELES", 2)), 1)
 
     def test_boosting_grid_ignores_the_fallback(self):
         self.assertEqual(grid("hist_gradient_boosting", 3), grid("hist_gradient_boosting"))

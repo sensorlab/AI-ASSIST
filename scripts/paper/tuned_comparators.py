@@ -328,16 +328,23 @@ def paired_rows(
     return out
 
 
-def analyse(dataset: str, slug: str) -> pd.DataFrame:
+def variants(dataset: str, n_dropped: int) -> list[tuple[str, tuple[str, ...]]]:
+    """(file and column suffix, models): the primary grid, plus BUS39's full tree grid as a supplementary row when
+    the fallback reduced the grid (pre-specified)."""
+    return [("", MODELS)] + ([("_fullgrid", TREE_MODELS)] if dataset == "BUS39" and n_dropped else [])
+
+
+def analyse(dataset: str, slug: str, n_dropped: int) -> pd.DataFrame:
     config = CONFIGS[dataset]
+    arms = [(model, suffix) for suffix, models in variants(dataset, n_dropped) for model in models]
     ml, _, budgets = _load_ml(config["slug"])
     retrieval = _load_retrieval(config["retrieval_path"], config["retrieval_prediction"])
     tuned = pd.concat(
         [
-            pd.concat([pd.read_parquet(RUN_DIR / f"{slug}_{model}_fold{f}.parquet") for f in range(N_SPLITS)])
-            .rename(columns={"cct_pred": f"{model}_tuned"})[["state", "record_ordinal", f"{model}_tuned"]]
+            pd.concat([pd.read_parquet(RUN_DIR / f"{slug}_{model}{sfx}_fold{f}.parquet") for f in range(N_SPLITS)])
+            .rename(columns={"cct_pred": f"{model}_tuned{sfx}"})[["state", "record_ordinal", f"{model}_tuned{sfx}"]]
             .set_index(["state", "record_ordinal"])
-            for model in MODELS
+            for model, sfx in arms
         ],
         axis=1,
     ).reset_index()
@@ -355,22 +362,31 @@ def analyse(dataset: str, slug: str) -> pd.DataFrame:
             population="common_retrieval_covered",
             prediction_col=col,
             coverage=coverage,
-            max_features=budgets.get(col, "tuned" if col.endswith("_tuned") else "not applicable"),
+            max_features=budgets.get(col, "tuned" if "_tuned" in col else "not applicable"),
         )
-        for col in ["retrieval", *[f"{x}_tuned" for x in MODELS], *UNTUNED[dataset].values(), "location_median"]
+        for col in [
+            "retrieval",
+            *[f"{x}_tuned{sfx}" for x, sfx in arms],
+            *UNTUNED[dataset].values(),
+            "location_median",
+        ]
     ]
     units = {"state": None} if dataset == "BUS39" else _eles_clusters(pd.Index(common["state"].drop_duplicates()))
     paired = [paired_rows(dataset, common, "retrieval", f"{x}_tuned", units) for x in MODELS]
+    # The supplementary full-grid rows are reported with intervals but do not decide.
+    paired += [
+        paired_rows(dataset, common, "retrieval", f"{x}_tuned{sfx}", units, decide=False) for x, sfx in arms if sfx
+    ]
     paired.append(paired_rows(dataset, common, "retrieval", "location_median", units))
     paired += [paired_rows(dataset, common, f"{x}_tuned", UNTUNED[dataset][x], units) for x in MODELS]
     chosen = []
-    for model in MODELS:
+    for model, sfx in arms:
         for f in range(N_SPLITS):
-            log = json.loads((RUN_DIR / f"{slug}_{model}_fold{f}.json").read_text())
+            log = json.loads((RUN_DIR / f"{slug}_{model}{sfx}_fold{f}.json").read_text())
             chosen.append(
                 {
                     "dataset": dataset,
-                    "quantity": f"chosen_{model}",
+                    "quantity": f"chosen_{model}{sfx}",
                     "fold": f,
                     "config": json.dumps(log["configs"][log["chosen"]]),
                     "estimate": log["inner_mae"][log["chosen"]],
@@ -386,13 +402,13 @@ def run(n_jobs: int, n_dropped: int) -> None:
         folds = list(group_k_fold_indices(groups, n_splits=N_SPLITS))
         check_folds(groups, folds, pd.read_parquet(PROJECT_DIR / "tmp" / f"ml_benchmark_predictions-{slug}.parquet"))
         logger.info(f"{dataset}: outer folds equal Table 3's")
-        for model in MODELS:
-            for f, (train_idx, test_idx) in enumerate(folds):
-                fit_fold(
-                    f"{slug}_{model}_fold{f}", model, X, y, groups, train_idx, test_idx, grid(model, n_dropped), n_jobs
-                )
+        for sfx, models in variants(dataset, n_dropped):
+            for model in models:
+                configs = grid(model, 0 if sfx else n_dropped)
+                for f, (train_idx, test_idx) in enumerate(folds):
+                    fit_fold(f"{slug}_{model}{sfx}_fold{f}", model, X, y, groups, train_idx, test_idx, configs, n_jobs)
         del X, y, groups
-    out = pd.concat([analyse(d, CONFIGS[d]["slug"]) for d in DATASETS], ignore_index=True)
+    out = pd.concat([analyse(d, CONFIGS[d]["slug"], n_dropped) for d in DATASETS], ignore_index=True)
     out.to_csv(OUTPUT_PATH, index=False)
     for row in out[out["quantity"].astype(str).str.startswith("decision_")].itertuples():
         logger.info(
