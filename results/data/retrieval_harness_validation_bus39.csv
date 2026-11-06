@@ -1,0 +1,9 @@
+check,n_compared,n_mismatch,max_abs_diff,tolerance,passed
+bus39 loso: true CCT,1044797,0,,0.0,True
+bus39 loso: covered set,1044797,0,,0.0,True
+bus39 loso: candidate generators,1044793,0,,0.0,True
+"bus39 loso: selected estimate, untied",1029296,0,0.0,1e-09,True
+bus39 loso: screening minimum,1044793,0,0.0,1e-09,True
+bus39 loso: oracle estimate,1044793,0,0.0,1e-09,True
+"bus39 loso: true generator rank, no tie",1029296,0,,0.0,True
+"bus39 loso: tied top generator (counted, not checked)",15497,0,,,True

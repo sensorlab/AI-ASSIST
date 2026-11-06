@@ -1,4 +1,4 @@
-"""Exact retrieval for ELES with a pluggable compatibility rule, running the production estimator unchanged.
+"""Exact retrieval for ELES (and BUS39) with a pluggable compatibility rule, running the production estimator unchanged.
 
 Two revision analyses need retrieval that the deployed Qdrant filter cannot express: the causal screening estimate
 (the causal run stored only the selected generator's estimate, not the minimum over candidates) and alternative
@@ -11,6 +11,10 @@ location grouping, same kernel weights, same raw kernel mass for generator selec
 reproduced deliberately: Qdrant stores vectors as float32 and returns them, so neighbour vectors are float32 upcast to
 float64 while the query stays float64; and the query's topology bits come from the scaled row via `to_numpy(bool)`,
 exactly as `DatabaseQdrant._get_topology_id` computes them.
+
+BUS39 (analysis 06, R2.8) runs through the same path: `Rule.dataset` selects the corpus, and BUS39's single topology
+file plays the deployed key's role (its flags are constant, so it never filters). `Rule.n_neighbors` sets K, which on
+BUS39 binds. `scripts/paper/retrieval_harness_validation_bus39.py` checks the BUS39 path against production.
 
 The production estimate for one record is reproduced by `evaluate_states()`, which merges the two per-record producers
 `scripts/evaluation/eles_deoracled_bound.py` (selection, screening minimum, oracle) and
@@ -61,13 +65,16 @@ class Rule:
 
     `key=None` admits every state (no filter). `max_hamming=0` is exact equality on the key. `alpha` is the kernel
     bandwidth passed to production; 0 gives every neighbour weight 1 (uniform weights, analysis 03). `representation`
-    names an alternative distance from _representations.py (analysis 05); None keeps production's distance."""
+    names an alternative distance from _representations.py (analysis 05); None keeps production's distance.
+    `n_neighbors` is K and `dataset` the corpus (analysis 06)."""
 
     name: str
     key: str | None
     max_hamming: int = 0
     alpha: float = ALPHA
     representation: str | None = None
+    n_neighbors: int = N_NEIGHBORS
+    dataset: str = DATASET
 
 
 EXACT_LINES: Final[Rule] = Rule("exact_lines", "lines_only", 0)
@@ -102,7 +109,7 @@ class BruteForceDatabase:
 
     def __init__(self, lf_scaled: pd.DataFrame, key_columns: dict[str, list[str]], rule: Rule):
         self.embed_cols: list[str] = sorted(col for col in lf_scaled.columns if not RE_TOPO.match(col))
-        self.default_limit: int = N_NEIGHBORS
+        self.default_limit: int = rule.n_neighbors
         self.index_name: str = lf_scaled.index.name or "_index"
         self.rule = rule
         self.key_columns = key_columns
@@ -169,20 +176,21 @@ class Corpus:
     key_raw_columns: dict[str, list[str]]  # the same flags under their raw names, aligned with key_columns
 
 
-def load_corpus(data_dir: Path | None = None) -> Corpus:
-    """Load and scale ELES exactly as build_estimation_service() does."""
+def load_corpus(data_dir: Path | None = None, dataset: str = DATASET) -> Corpus:
+    """Load and scale a dataset exactly as build_estimation_service() does."""
     data_dir = data_dir or Path(os.environ.get("DATA_DIR", "./datasets"))
-    lf_path, tsa_path, _ = _dataset_paths(data_dir, DATASET, topology_variant=LINE_KEY)
+    eles = dataset == DATASET
+    lf_path, tsa_path, _ = _dataset_paths(data_dir, dataset, topology_variant=LINE_KEY if eles else None)
     lf = cast(pd.DataFrame, pd.read_pickle(lf_path))
-    scaler = _make_scaler_for_dataset(DATASET)
+    scaler = _make_scaler_for_dataset(dataset)
     lf_scaled = cast(pd.DataFrame, scaler.fit_transform(lf))
     scaler.n_jobs = None  # see build_estimation_service(): dispatch only, never the arithmetic
 
     key_columns: dict[str, list[str]] = {}
     key_raw_columns: dict[str, list[str]] = {}
-    for key in KEYS:
-        _, _, cols_path = _dataset_paths(data_dir, DATASET, topology_variant=key)
-        if cols_path.stem != f"topology_cols_{key}":
+    for key in KEYS if eles else (LINE_KEY,):  # BUS39 has one topology file, the deployed key
+        _, _, cols_path = _dataset_paths(data_dir, dataset, topology_variant=key if eles else None)
+        if eles and cols_path.stem != f"topology_cols_{key}":
             raise FileNotFoundError(f"no topology_cols_{key} file under {cols_path.parent}")
         pairs = _feature_map(json.loads(cols_path.read_text()), list(lf_scaled.columns))
         key_raw_columns[key] = [raw for raw, _ in pairs]
@@ -291,7 +299,9 @@ def evaluate_states(
         state = {k: (None if pd.isna(v) else v) for k, v in corpus.lf.iloc[row_of[uid]].items()}
         state_row: dict[str, Any] = {"state": uid, "query_error": None, "n_fallback_groups": 0}
         try:
-            by_loc = service.estimate_by_location(state=state, exclude_uids=excluded_uids, alpha=rule.alpha)
+            by_loc = service.estimate_by_location(
+                state=state, exclude_uids=excluded_uids, n_neighbors=rule.n_neighbors, alpha=rule.alpha
+            )
         except ValueError as exc:  # production raises when a generator group's kernel weights all underflow
             by_loc = {}
             state_row["query_error"] = str(exc)
@@ -370,12 +380,12 @@ def run_rule(
     n_jobs: int,
     limit: int = 0,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
-    """Evaluate every ELES state under one rule, in worker processes that each load the corpus once.
+    """Evaluate every state of `rule.dataset` under one rule, in worker processes that each load the corpus once.
 
     `exclusions=None` is leave-one-state-out; otherwise the per-query withheld states (e.g. causal_exclusions())."""
     import joblib
 
-    corpus = load_corpus()
+    corpus = load_corpus(dataset=rule.dataset)
     by_state = tsa_by_state(corpus)
     uids = [str(u) for u in corpus.lf.index if str(u) in by_state]
     if limit:
@@ -396,4 +406,4 @@ def run_rule(
 
 
 def _run_chunk(rule: Rule, items: list[WorkItem]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], np.ndarray]:
-    return evaluate_states(load_corpus(), rule, items)
+    return evaluate_states(load_corpus(dataset=rule.dataset), rule, items)
