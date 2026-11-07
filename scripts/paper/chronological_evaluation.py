@@ -86,14 +86,33 @@ class HistoryScaler:
         return fit_scaler(self.scaler, lf, self.history)
 
 
-def retrieval_arm(name: str, history: list[str], exclusions: dict[str, list[str]], n_jobs: int) -> pd.DataFrame:
-    path = RUN_DIR / f"{name}.parquet"
-    if not path.exists():
+def retrieval_arm(
+    name: str, history: list[str], exclusions: dict[str, list[str]], n_jobs: int
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Per-record output and per-state query errors (production raises when every kernel weight underflows)."""
+    path, states_path = RUN_DIR / f"{name}.parquet", RUN_DIR / f"{name}_states.parquet"
+    if not (path.exists() and states_path.exists()):
         logger.info(f"running {name} ({len(exclusions):,} queries, scaler fitted on {len(history):,} states)")
         rule = Rule(name, LINE_KEY, 0, scaler_fit_states=tuple(history))
-        records, _, _ = run_rule(rule, exclusions, n_jobs=n_jobs)
+        records, states, _ = run_rule(rule, exclusions, n_jobs=n_jobs)
         records.to_parquet(path, index=False)
-    return pd.read_parquet(path)
+        states[["state", "query_error"]].to_parquet(states_path, index=False)
+    return pd.read_parquet(path), pd.read_parquet(states_path)
+
+
+def coverage_loss(m: pd.DataFrame, errors: pd.DataFrame) -> tuple[int, int]:
+    """(records, states) R-global covers and R-cont does not; stops unless R-cont's coverage is a subset of R-global's
+    and every state that loses coverage carries a production query error (deviation 1)."""
+    if (m["covered"] & ~m["covered_global"]).any():
+        raise ValueError("R-cont covers records the published causal run does not")
+    lost = m[~m["covered"] & m["covered_global"]]
+    failed = set(errors.loc[errors["query_error"].notna(), "state"].astype(str))
+    unexplained = set(lost["state"].astype(str)) - failed
+    if unexplained:
+        raise ValueError(
+            f"{len(unexplained)} states lose coverage without a query error, e.g. {sorted(unexplained)[:3]}"
+        )
+    return len(lost), int(lost["state"].nunique())
 
 
 def supervised_origin(k: int, history: list[str], test: list[str], lf: pd.DataFrame, tsa: pd.DataFrame, n_jobs: int):
@@ -133,11 +152,15 @@ def main() -> None:
         raise ValueError(f"{int(timestamps.isna().sum())} states have no timestamp")
     causal = causal_exclusions(timestamps, 0.0)
 
-    cont, frozen, supervised = [], [], []
+    cont, cont_errors, frozen, supervised = [], [], [], []
     for k, (origin, history, test) in enumerate(blocks(timestamps)):
         later = timestamps.index[timestamps >= origin].astype(str).tolist()  # includes every test state itself
-        cont.append(retrieval_arm(f"cont_origin{k}", history, {s: causal[s] for s in test}, n_jobs).assign(origin=k))
-        frozen.append(retrieval_arm(f"frozen_origin{k}", history, dict.fromkeys(test, later), n_jobs).assign(origin=k))
+        records, errors = retrieval_arm(f"cont_origin{k}", history, {s: causal[s] for s in test}, n_jobs)
+        cont.append(records.assign(origin=k))
+        cont_errors.append(errors)
+        frozen.append(
+            retrieval_arm(f"frozen_origin{k}", history, dict.fromkeys(test, later), n_jobs)[0].assign(origin=k)
+        )
         supervised.append(supervised_origin(k, history, test, lf, tsa, n_jobs).assign(origin=k))
     cont_r, frozen_r, sup = (pd.concat(x, ignore_index=True) for x in (cont, frozen, supervised))
     sup["state"] = sup["state"].astype(str)
@@ -146,11 +169,16 @@ def main() -> None:
     glob = pd.read_parquet(ELES_CAUSAL0)
     glob = glob[glob["state"].isin(test_states)]
     m = cont_r.merge(glob, on=KEY, suffixes=("", "_global"), validate="1:1")
-    if not m["covered"].equals(m["covered_global"]):
-        raise ValueError("R-cont and the published causal run cover different records; the scaler changed the key")
-    logger.info(f"R-cont covers the same {int(m['covered'].sum()):,} test-block records as R-global")
+    lost_records, lost_states = coverage_loss(m, pd.concat(cont_errors, ignore_index=True))
+    logger.info(
+        f"R-cont covers {int(m['covered'].sum()):,} of R-global's {int(m['covered_global'].sum()):,} test-block records; "
+        f"{lost_records:,} records in {lost_states:,} states lost to kernel-weight underflow"
+    )
 
-    rows: list[dict[str, Any]] = []
+    rows: list[dict[str, Any]] = [
+        {"arm": "R-cont", "quantity": "records_lost_to_underflow", "estimate": lost_records},
+        {"arm": "R-cont", "quantity": "states_lost_to_underflow", "estimate": lost_states},
+    ]
     for arm, records in (("R-cont", cont_r), ("R-frozen", frozen_r), ("R-global", glob)):
         rows += [{"arm": arm, "quantity": q, "estimate": v} for q, v in describe(records).items()]
         for k, g in records.groupby(records["state"].map(dict(zip(cont_r["state"], cont_r["origin"], strict=True)))):
