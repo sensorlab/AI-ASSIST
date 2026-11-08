@@ -1,0 +1,104 @@
+dataset,model,population,n,coverage,max_features,mae,rmse,ae_q50,ae_q95,ae_q99,ae_q100,fold_mae_mean,fold_mae_std,quantity,resampling_unit,decides,estimate,ci_low,ci_high,fold,config
+BUS39,retrieval,common_retrieval_covered,1044792.0,0.9999952143813583,not applicable,0.019186025388994686,0.03114478840217227,0.013122745454549126,0.05430452616661357,0.12024218210314841,0.8011255094374474,0.01918602542183883,0.0001425930730891848,metrics,,,,,,,
+BUS39,extra_trees_tuned,common_retrieval_covered,1044792.0,0.9999952143813583,tuned,0.010262991070630978,0.017496687604013083,0.006700000000000372,0.030400000000000094,0.06499999999999995,0.6264666666666665,0.01026299112071853,7.670183225055756e-05,metrics,,,,,,,
+BUS39,random_forest_tuned,common_retrieval_covered,1044792.0,0.9999952143813583,tuned,0.009604690427820523,0.016344763487793,0.006233333333333091,0.028733333333332833,0.05976666666666632,0.602000000000001,0.00960469052997808,7.208979023261497e-05,metrics,,,,,,,
+BUS39,hist_gradient_boosting_tuned,common_retrieval_covered,1044792.0,0.9999952143813583,tuned,0.006815260798394412,0.013473228731097435,0.004199970456283786,0.02017301872481956,0.05131323677436493,0.9776079510523229,0.0068152608225687,3.36733099835451e-05,metrics,,,,,,,
+BUS39,extra_trees_tuned_fullgrid,common_retrieval_covered,1044792.0,0.9999952143813583,tuned,0.004911054784110168,0.009757421797459443,0.0028999999999995696,0.015466666666667295,0.03823333333333403,0.5239666666666671,0.004911054811921032,1.90110659930744e-05,metrics,,,,,,,
+BUS39,random_forest_tuned_fullgrid,common_retrieval_covered,1044792.0,0.9999952143813583,tuned,0.004991855600612487,0.009978412857444927,0.002833333333333188,0.01593333333333352,0.03785252777777781,0.5279666666666665,0.004991855628415111,2.627675307949823e-05,metrics,,,,,,,
+BUS39,extra_trees@1.0,common_retrieval_covered,1044792.0,0.9999952143813583,1.0,0.004923198165026273,0.009801012935894436,0.0029000000000004578,0.015477777777777105,0.038205555555555604,0.5357932756132735,0.0049231981915741855,2.185213662310483e-05,metrics,,,,,,,
+BUS39,random_forest@1.0,common_retrieval_covered,1044792.0,0.9999952143813583,1.0,0.00499098398820823,0.010001891799372787,0.002830908628407569,0.01591072619047683,0.03776529894179887,0.5554018502358213,0.004990984015392555,2.7848939423275646e-05,metrics,,,,,,,
+BUS39,hist_gradient_boosting,common_retrieval_covered,1044792.0,0.9999952143813583,not applicable,0.015662616370339694,0.030132300869202717,0.009952464987061926,0.04398596248571808,0.10994757399011201,0.9832488389741112,0.015662616297939726,0.0001989507643991032,metrics,,,,,,,
+BUS39,location_median,common_retrieval_covered,1044792.0,0.9999952143813583,not applicable,0.11084981508281073,0.1608760676998582,0.08000000000000002,0.29999999999999993,0.5900000000000001,1.71,0.11084981324348948,0.0006158345786880008,metrics,,,,,,,
+BUS39,,,,,,,,,,,,,,mae_retrieval_minus_extra_trees_tuned,state,True,0.008923034318363712,0.00883845668968791,0.009010256830432743,,
+BUS39,,,,,,,,,,,,,,decision_retrieval_vs_extra_trees_tuned_negligible,state,True,0.008923034318363712,0.00883845668968791,0.009010256830432743,,
+BUS39,,,,,,,,,,,,,,mae_retrieval_minus_random_forest_tuned,state,True,0.009581334961174165,0.00948485379241484,0.00967626765054821,,
+BUS39,,,,,,,,,,,,,,decision_retrieval_vs_random_forest_tuned_negligible,state,True,0.009581334961174165,0.00948485379241484,0.00967626765054821,,
+BUS39,,,,,,,,,,,,,,mae_retrieval_minus_hist_gradient_boosting_tuned,state,True,0.012370764590600273,0.012266399011474938,0.012471886299961515,,
+BUS39,,,,,,,,,,,,,,decision_retrieval_vs_hist_gradient_boosting_tuned_worse,state,True,0.012370764590600273,0.012266399011474938,0.012471886299961515,,
+BUS39,,,,,,,,,,,,,,mae_retrieval_minus_extra_trees_tuned_fullgrid,state,True,0.014274970604884522,0.01416855004016981,0.014382262936775258,,
+BUS39,,,,,,,,,,,,,,mae_retrieval_minus_random_forest_tuned_fullgrid,state,True,0.0141941697883822,0.01408970796395075,0.014299373213436262,,
+BUS39,,,,,,,,,,,,,,mae_retrieval_minus_location_median,state,True,-0.09166378969381603,-0.09264504015928453,-0.09071976171420862,,
+BUS39,,,,,,,,,,,,,,decision_retrieval_vs_location_median_better,state,True,-0.09166378969381603,-0.09264504015928453,-0.09071976171420862,,
+BUS39,,,,,,,,,,,,,,mae_extra_trees_tuned_minus_extra_trees@1.0,state,True,0.005339792905604701,0.005299101353183621,0.005382466734491795,,
+BUS39,,,,,,,,,,,,,,mae_random_forest_tuned_minus_random_forest@1.0,state,True,0.004613706439612291,0.00457556370022417,0.004653430720175485,,
+BUS39,,,,,,,,,,,,,,mae_hist_gradient_boosting_tuned_minus_hist_gradient_boosting,state,True,-0.008847355571945274,-0.008917743542536188,-0.008780973428419419,,
+BUS39,,,,,,,,,,,,,,chosen_extra_trees,,,0.010567065893326955,,,0.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_extra_trees,,,0.010769073886123005,,,1.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_extra_trees,,,0.010611948595660843,,,2.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_extra_trees,,,0.010651632899179931,,,3.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_extra_trees,,,0.010847798709941639,,,4.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_random_forest,,,0.01006563325994078,,,0.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_random_forest,,,0.010248442812606555,,,1.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_random_forest,,,0.010152465187776537,,,2.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_random_forest,,,0.01024723470700388,,,3.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_random_forest,,,0.010378061958478485,,,4.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_hist_gradient_boosting,,,0.006985263952746987,,,0.0,"{""learning_rate"": 0.1, ""max_leaf_nodes"": 255, ""max_iter"": 1000}"
+BUS39,,,,,,,,,,,,,,chosen_hist_gradient_boosting,,,0.007227421219310143,,,1.0,"{""learning_rate"": 0.1, ""max_leaf_nodes"": 255, ""max_iter"": 1000}"
+BUS39,,,,,,,,,,,,,,chosen_hist_gradient_boosting,,,0.00717920437277731,,,2.0,"{""learning_rate"": 0.1, ""max_leaf_nodes"": 255, ""max_iter"": 1000}"
+BUS39,,,,,,,,,,,,,,chosen_hist_gradient_boosting,,,0.007182422598449243,,,3.0,"{""learning_rate"": 0.1, ""max_leaf_nodes"": 255, ""max_iter"": 1000}"
+BUS39,,,,,,,,,,,,,,chosen_hist_gradient_boosting,,,0.007128457875807069,,,4.0,"{""learning_rate"": 0.1, ""max_leaf_nodes"": 255, ""max_iter"": 1000}"
+BUS39,,,,,,,,,,,,,,chosen_extra_trees_fullgrid,,,0.00506524097105956,,,0.0,"{""max_features"": 1.0, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_extra_trees_fullgrid,,,0.005160315410808769,,,1.0,"{""max_features"": 1.0, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_extra_trees_fullgrid,,,0.0050916679680930365,,,2.0,"{""max_features"": 1.0, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_extra_trees_fullgrid,,,0.005163873311625668,,,3.0,"{""max_features"": 1.0, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_extra_trees_fullgrid,,,0.005190702485560626,,,4.0,"{""max_features"": 1.0, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_random_forest_fullgrid,,,0.005139527655341828,,,0.0,"{""max_features"": 1.0, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_random_forest_fullgrid,,,0.005227050186462408,,,1.0,"{""max_features"": 1.0, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_random_forest_fullgrid,,,0.005178198105361586,,,2.0,"{""max_features"": 1.0, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_random_forest_fullgrid,,,0.005250116618905977,,,3.0,"{""max_features"": 1.0, ""min_samples_leaf"": 1}"
+BUS39,,,,,,,,,,,,,,chosen_random_forest_fullgrid,,,0.00526237269079163,,,4.0,"{""max_features"": 1.0, ""min_samples_leaf"": 1}"
+ELES,retrieval,common_retrieval_covered,230511.0,0.7140476360110649,not applicable,0.05087428673782871,0.12033034073857882,0.010000000000328801,0.2295415998819598,0.5900000026730463,1.62,0.05088666496221459,0.0011647803823122186,metrics,,,,,,,
+ELES,extra_trees_tuned,common_retrieval_covered,230511.0,0.7140476360110649,tuned,0.03892523333424922,0.0745280834458663,0.018466666666665743,0.13833333333333375,0.3162333333333331,1.269833333333334,0.038925304475459305,0.0009200862201950979,metrics,,,,,,,
+ELES,random_forest_tuned,common_retrieval_covered,230511.0,0.7140476360110649,tuned,0.04304851740265071,0.07926559489701901,0.022033333333332877,0.1474666666666662,0.333766666666668,1.341266666666666,0.04304977950745374,0.0010358987717391623,metrics,,,,,,,
+ELES,hist_gradient_boosting_tuned,common_retrieval_covered,230511.0,0.7140476360110649,tuned,0.030766338485159205,0.07522805901640006,0.011424982376025794,0.11530577173737844,0.372438138194086,1.3871791426482654,0.03076758773996065,0.0009416474980369032,metrics,,,,,,,
+ELES,extra_trees@sqrt,common_retrieval_covered,230511.0,0.7140476360110649,sqrt,0.10214233348162714,0.15320131181973193,0.07334890179031284,0.2843361844123422,0.6262477491101794,1.4655599948710667,0.10214989195578099,0.0014363309168578696,metrics,,,,,,,
+ELES,random_forest@sqrt,common_retrieval_covered,230511.0,0.7140476360110649,sqrt,0.10397351441767842,0.15582392175364745,0.07458802057202685,0.2895756926703149,0.6362170263035154,1.4553054030200687,0.10398059513088162,0.0014136338892700975,metrics,,,,,,,
+ELES,hist_gradient_boosting,common_retrieval_covered,230511.0,0.7140476360110649,not applicable,0.055127162959349586,0.11781610708689821,0.022732990126253433,0.2132669575605915,0.585199469264692,1.4692484307591598,0.055133849025277216,0.0013190353512879335,metrics,,,,,,,
+ELES,location_median,common_retrieval_covered,230511.0,0.7140476360110649,not applicable,0.09087607532829237,0.15790380051844052,0.04999999999999999,0.31999999999999995,0.7000000000000001,1.57,0.09088443217742921,0.0016003614331627407,metrics,,,,,,,
+ELES,,,,,,,,,,,,,,mae_retrieval_minus_extra_trees_tuned,state,True,0.011949053403579504,0.010920706615487113,0.013006227362572969,,
+ELES,,,,,,,,,,,,,,mae_retrieval_minus_extra_trees_tuned,topology_group,True,0.011949053403579504,0.010652753587311308,0.013297303947477588,,
+ELES,,,,,,,,,,,,,,mae_retrieval_minus_extra_trees_tuned,calendar_day,True,0.011949053403579504,0.010372763229278438,0.013562865180493775,,
+ELES,,,,,,,,,,,,,,mae_retrieval_minus_extra_trees_tuned,calendar_week,False,0.011949053403579504,0.009200931971932844,0.01471883493157366,,
+ELES,,,,,,,,,,,,,,decision_retrieval_vs_extra_trees_tuned_worse,calendar_day,True,0.011949053403579504,0.010372763229278438,0.013562865180493775,,
+ELES,,,,,,,,,,,,,,mae_retrieval_minus_random_forest_tuned,state,True,0.007825769335178007,0.006708272580439894,0.008921985580981074,,
+ELES,,,,,,,,,,,,,,mae_retrieval_minus_random_forest_tuned,topology_group,True,0.007825769335178007,0.0064789838283807535,0.00927615554047121,,
+ELES,,,,,,,,,,,,,,mae_retrieval_minus_random_forest_tuned,calendar_day,True,0.007825769335178007,0.0062712275647326555,0.009511159054613394,,
+ELES,,,,,,,,,,,,,,mae_retrieval_minus_random_forest_tuned,calendar_week,False,0.007825769335178007,0.00491476337199958,0.010766136347733202,,
+ELES,,,,,,,,,,,,,,decision_retrieval_vs_random_forest_tuned_negligible,calendar_day,True,0.007825769335178007,0.0062712275647326555,0.009511159054613394,,
+ELES,,,,,,,,,,,,,,mae_retrieval_minus_hist_gradient_boosting_tuned,state,True,0.020107948252669514,0.018849499258592535,0.021347415627574636,,
+ELES,,,,,,,,,,,,,,mae_retrieval_minus_hist_gradient_boosting_tuned,topology_group,True,0.020107948252669514,0.01844443221298308,0.021783941770814975,,
+ELES,,,,,,,,,,,,,,mae_retrieval_minus_hist_gradient_boosting_tuned,calendar_day,True,0.020107948252669514,0.017995688441975823,0.02215191703724831,,
+ELES,,,,,,,,,,,,,,mae_retrieval_minus_hist_gradient_boosting_tuned,calendar_week,False,0.020107948252669514,0.01606890768879117,0.02437638305198084,,
+ELES,,,,,,,,,,,,,,decision_retrieval_vs_hist_gradient_boosting_tuned_worse,calendar_day,True,0.020107948252669514,0.017995688441975823,0.02215191703724831,,
+ELES,,,,,,,,,,,,,,mae_retrieval_minus_location_median,state,True,-0.04000178859046365,-0.04154842481697512,-0.038396267400845376,,
+ELES,,,,,,,,,,,,,,mae_retrieval_minus_location_median,topology_group,True,-0.04000178859046365,-0.04228744506231193,-0.037776471959892755,,
+ELES,,,,,,,,,,,,,,mae_retrieval_minus_location_median,calendar_day,True,-0.04000178859046365,-0.04257826589085458,-0.037750941077356846,,
+ELES,,,,,,,,,,,,,,mae_retrieval_minus_location_median,calendar_week,False,-0.04000178859046365,-0.04383396448446407,-0.03633137493071875,,
+ELES,,,,,,,,,,,,,,decision_retrieval_vs_location_median_better,calendar_day,True,-0.04000178859046365,-0.04257826589085458,-0.037750941077356846,,
+ELES,,,,,,,,,,,,,,mae_extra_trees_tuned_minus_extra_trees@sqrt,state,True,-0.06321710014737797,-0.0641381450664626,-0.062313930947298174,,
+ELES,,,,,,,,,,,,,,mae_extra_trees_tuned_minus_extra_trees@sqrt,topology_group,True,-0.06321710014737797,-0.06492031392201845,-0.06152571975820899,,
+ELES,,,,,,,,,,,,,,mae_extra_trees_tuned_minus_extra_trees@sqrt,calendar_day,True,-0.06321710014737797,-0.06506878097075486,-0.06132301934212533,,
+ELES,,,,,,,,,,,,,,mae_extra_trees_tuned_minus_extra_trees@sqrt,calendar_week,False,-0.06321710014737797,-0.06689099131886407,-0.059676816022949324,,
+ELES,,,,,,,,,,,,,,mae_random_forest_tuned_minus_random_forest@sqrt,state,True,-0.06092499701502771,-0.061772163763469064,-0.06006904803593517,,
+ELES,,,,,,,,,,,,,,mae_random_forest_tuned_minus_random_forest@sqrt,topology_group,True,-0.06092499701502771,-0.06251964949313284,-0.05931354982129196,,
+ELES,,,,,,,,,,,,,,mae_random_forest_tuned_minus_random_forest@sqrt,calendar_day,True,-0.06092499701502771,-0.06267089021508486,-0.059173990887858394,,
+ELES,,,,,,,,,,,,,,mae_random_forest_tuned_minus_random_forest@sqrt,calendar_week,False,-0.06092499701502771,-0.06438783661064595,-0.05767616970378984,,
+ELES,,,,,,,,,,,,,,mae_hist_gradient_boosting_tuned_minus_hist_gradient_boosting,state,True,-0.02436082447419038,-0.024909197389416653,-0.023825155709677876,,
+ELES,,,,,,,,,,,,,,mae_hist_gradient_boosting_tuned_minus_hist_gradient_boosting,topology_group,True,-0.02436082447419038,-0.025342534396892723,-0.023364152723635505,,
+ELES,,,,,,,,,,,,,,mae_hist_gradient_boosting_tuned_minus_hist_gradient_boosting,calendar_day,True,-0.02436082447419038,-0.025532306553011627,-0.02329972161056939,,
+ELES,,,,,,,,,,,,,,mae_hist_gradient_boosting_tuned_minus_hist_gradient_boosting,calendar_week,False,-0.02436082447419038,-0.02650670688568757,-0.022279100636340973,,
+ELES,,,,,,,,,,,,,,chosen_extra_trees,,,0.045526013592459884,,,0.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+ELES,,,,,,,,,,,,,,chosen_extra_trees,,,0.04495406138981505,,,1.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+ELES,,,,,,,,,,,,,,chosen_extra_trees,,,0.04443574830325467,,,2.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+ELES,,,,,,,,,,,,,,chosen_extra_trees,,,0.045589972223288915,,,3.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+ELES,,,,,,,,,,,,,,chosen_extra_trees,,,0.04502693536210001,,,4.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+ELES,,,,,,,,,,,,,,chosen_random_forest,,,0.04994031049933605,,,0.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+ELES,,,,,,,,,,,,,,chosen_random_forest,,,0.04911983206715081,,,1.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+ELES,,,,,,,,,,,,,,chosen_random_forest,,,0.04847416138075295,,,2.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+ELES,,,,,,,,,,,,,,chosen_random_forest,,,0.049345168201639304,,,3.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+ELES,,,,,,,,,,,,,,chosen_random_forest,,,0.04915133153470049,,,4.0,"{""max_features"": 0.1, ""min_samples_leaf"": 1}"
+ELES,,,,,,,,,,,,,,chosen_hist_gradient_boosting,,,0.034386662250939136,,,0.0,"{""learning_rate"": 0.1, ""max_leaf_nodes"": 255, ""max_iter"": 1000}"
+ELES,,,,,,,,,,,,,,chosen_hist_gradient_boosting,,,0.03431063910384952,,,1.0,"{""learning_rate"": 0.1, ""max_leaf_nodes"": 255, ""max_iter"": 825}"
+ELES,,,,,,,,,,,,,,chosen_hist_gradient_boosting,,,0.03395400737620814,,,2.0,"{""learning_rate"": 0.1, ""max_leaf_nodes"": 255, ""max_iter"": 1000}"
+ELES,,,,,,,,,,,,,,chosen_hist_gradient_boosting,,,0.035509904271730466,,,3.0,"{""learning_rate"": 0.05, ""max_leaf_nodes"": 255, ""max_iter"": 1000}"
+ELES,,,,,,,,,,,,,,chosen_hist_gradient_boosting,,,0.035411127649833264,,,4.0,"{""learning_rate"": 0.1, ""max_leaf_nodes"": 255, ""max_iter"": 755}"
