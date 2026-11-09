@@ -12,6 +12,7 @@ scale of d, and the constant keeps the effective bandwidth comparable without lo
     l1             Manhattan distance on all columns
     without_<f>    Euclidean on every column except feature family <f> (exploratory analysis 11)
     only_<f>       Euclidean on the columns of family <f> only
+    families_<f1>+<f2>...  Euclidean on the union of the listed families (coalitions, exploratory analysis 12)
 Families group the load-flow quantities by physical kind: voltage magnitude, voltage angle (sine and cosine), active
 power (injections and both line ends), reactive power (likewise) and short-circuit power.
 """
@@ -117,9 +118,14 @@ def build(
             return np.linalg.norm((n - mean) @ basis - (q - mean) @ basis, axis=1)
 
         facts = {"n_dimensions": k}
-    elif name == "slovenian" or name in FAMILY_NAMES:
+    elif name == "slovenian" or name in FAMILY_NAMES or name.startswith("families_"):
         if name == "slovenian":
             mask = embed_mask(embed_cols, slovenian_raw_columns(raw_columns, dictionary_names()))
+        elif name.startswith("families_"):
+            members = name.removeprefix("families_").split("+")
+            if not set(members) <= set(FAMILIES):
+                raise ValueError(f"unknown family in {name!r}")
+            mask = np.logical_or.reduce([family_mask(embed_cols, f) for f in members])
         else:
             mode, family = name.split("_", 1)
             mask = family_mask(embed_cols, family)
