@@ -10,6 +10,10 @@ scale of d, and the constant keeps the effective bandwidth comparable without lo
     pca90, pca99   Euclidean on principal-component scores (components for 90% / 99% of variance, fitted on all states)
     slovenian      Euclidean on the columns of elements listed in the Slovenian PowerFactory dictionary
     l1             Manhattan distance on all columns
+    without_<f>    Euclidean on every column except feature family <f> (exploratory analysis 11)
+    only_<f>       Euclidean on the columns of family <f> only
+Families group the load-flow quantities by physical kind: voltage magnitude, voltage angle (sine and cosine), active
+power (injections and both line ends), reactive power (likewise) and short-circuit power.
 """
 
 from __future__ import annotations
@@ -29,6 +33,14 @@ PCA_LEVELS: Final[dict[str, float]] = {"pca90": 0.90, "pca99": 0.99}
 ELEMENT_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9]+_(?P<el>.+?)_\[[^\]]*\](\.\d+)?$")
 TYPE_RE: Final[re.Pattern[str]] = re.compile(r"^(Bus|Lne|Lod|Gen)")
 ANGLE_SUFFIXES: Final[tuple[str, ...]] = ("_cos", "_sin")
+FAMILIES: Final[dict[str, tuple[str, ...]]] = {
+    "voltage": ("U",),
+    "angle": ("phi",),
+    "active": ("P", "P1", "P2"),
+    "reactive": ("Q", "Q1", "Q2"),
+    "short_circuit": ("Sk",),
+}
+FAMILY_NAMES: Final[tuple[str, ...]] = tuple(f"{mode}_{f}" for f in FAMILIES for mode in ("without", "only"))
 
 Distance = Callable[[np.ndarray, np.ndarray], np.ndarray]
 
@@ -64,6 +76,15 @@ def embed_mask(embed_cols: Sequence[str], raw_columns: Sequence[str]) -> np.ndar
     )
 
 
+def family_mask(embed_cols: Sequence[str], family: str) -> np.ndarray:
+    """Embedding columns of `family`, by the quantity prefix before the first underscore; every column must have one."""
+    prefixes = [c.split("_", 1)[0] for c in embed_cols]
+    unknown = sorted({p for p in prefixes if not any(p in v for v in FAMILIES.values())})
+    if unknown:
+        raise ValueError(f"embedding columns with no feature family: {unknown}")
+    return np.array([p in FAMILIES[family] for p in prefixes])
+
+
 def same_key_pairs(keys: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Index pairs (i < j) of rows with identical key rows."""
     groups = pd.Series(range(len(keys))).groupby(pd.factorize(pd.Series(map(bytes, keys)))[0]).apply(list)
@@ -96,8 +117,15 @@ def build(
             return np.linalg.norm((n - mean) @ basis - (q - mean) @ basis, axis=1)
 
         facts = {"n_dimensions": k}
-    elif name == "slovenian":
-        mask = embed_mask(embed_cols, slovenian_raw_columns(raw_columns, dictionary_names()))
+    elif name == "slovenian" or name in FAMILY_NAMES:
+        if name == "slovenian":
+            mask = embed_mask(embed_cols, slovenian_raw_columns(raw_columns, dictionary_names()))
+        else:
+            mode, family = name.split("_", 1)
+            mask = family_mask(embed_cols, family)
+            mask = ~mask if mode == "without" else mask
+            if not mask.any() or mask.all():
+                raise ValueError(f"{name} selects no columns or every column")
 
         def raw(q: np.ndarray, n: np.ndarray) -> np.ndarray:
             return np.linalg.norm(n[:, mask] - q[:, mask], axis=1)

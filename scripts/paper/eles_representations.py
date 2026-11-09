@@ -59,18 +59,18 @@ def relabel(out: pd.DataFrame, name: str) -> pd.DataFrame:
     return out.assign(quantity=q, representation=name)
 
 
-def facts() -> list[dict[str, Any]]:
+def facts(names: tuple[str, ...]) -> list[dict[str, Any]]:
     corpus = load_corpus()
     db = BruteForceDatabase(corpus.lf_scaled, corpus.key_columns, EXACT_LINES)
     raw_columns = [c for c in corpus.lf.columns if not RE_TOPO.match(c)]
     rows = []
-    for name in _representations.NAMES:
+    for name in names:
         _, f = _representations.build(name, db.vectors, db.embed_cols, raw_columns, db.bits[LINE_KEY])
         rows += [{"representation": name, "quantity": k, "estimate": v} for k, v in f.items()]
     return rows
 
 
-def main() -> None:
+def main(names: tuple[str, ...] = _representations.NAMES, output: Path = OUTPUT_PATH) -> None:
     configure_logging()
     if not pd.read_csv(VALIDATION)["passed"].all():
         raise RuntimeError(f"{VALIDATION.name} has failed checks; the harness output must not be used")
@@ -80,23 +80,23 @@ def main() -> None:
     if timestamps.isna().any():
         raise ValueError(f"{int(timestamps.isna().sum())} states have no timestamp")
 
-    results = [pd.DataFrame(facts())]
+    results = [pd.DataFrame(facts(names))]
     deployed = {"retrospective": pd.read_parquet(ELES_LOSO), "causal_lag0": pd.read_parquet(ELES_CAUSAL0)}
     units = _eles_clusters(pd.Index(deployed["retrospective"]["state"].drop_duplicates()))
-    for name in _representations.NAMES:
+    for name in names:
         rule = Rule(f"exact_lines_{name}", EXACT_LINES.key, EXACT_LINES.max_hamming, representation=name)
         for availability, exclusions in (("retrospective", None), ("causal_lag0", causal_exclusions(timestamps, 0.0))):
             records, _, _ = run_rule(rule, exclusions, n_jobs=n_jobs)
             tag = "loso" if exclusions is None else "causal0h"
             records.to_parquet(TMP_DIR / f"harness_records_{name}_{tag}.parquet", index=False)
             results.append(relabel(compare(deployed[availability], records, units, availability), name))
-            pd.concat(results, ignore_index=True).to_csv(OUTPUT_PATH, index=False)
+            pd.concat(results, ignore_index=True).to_csv(output, index=False)
             d = results[-1][results[-1]["quantity"].str.startswith("decision_")].iloc[0]
             logger.info(
                 f"{name} {availability}: MAE {name} - deployed {d['estimate']:+.5f} s "
                 f"[{d['ci_low']:+.5f}, {d['ci_high']:+.5f}] under {d['resampling_unit']} -> {d['quantity']}"
             )
-    logger.info(f"Saved {OUTPUT_PATH}")
+    logger.info(f"Saved {output}")
 
 
 if __name__ == "__main__":
