@@ -1,5 +1,5 @@
 """Auditable replacement for an earlier throwaway sensitivity check (ai2ai.md, 2026-08-09,
-Codex review): quantifies how much the nAURC(MAE) values in journal.tex Table 2 depend on
+Codex review): quantifies how much the nAURC(MAE) values in journal.tex Table 4 (tab:diagnostics) depend on
 how ties among a diagnostic's values are broken, without touching the committed
 bootstrap_ci_selected_*.csv files those numbers actually come from.
 
@@ -50,7 +50,7 @@ N_RANDOM_SEEDS: Final[int] = 20
 SEED: Final[int] = 42
 
 # Matches bootstrap_risk_coverage_selected.py's MAIN_METRIC_NAMES/METRIC_SETS["main"] exactly -
-# the five diagnostics displayed in Table 2.
+# the five diagnostics displayed in Table 4 at submission (then numbered 2).
 MAIN_METRICS: Final[tuple[tuple[str, bool], ...]] = (
     ("cct_weighted_std", False),
     ("distance_min", False),

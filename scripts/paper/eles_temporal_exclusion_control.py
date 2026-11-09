@@ -135,7 +135,7 @@ def _window(hours: float) -> dict[str, object]:
     # this the control arm's MAE has nothing to be read against: the question is not only
     # whether error rises but whether retrieval still beats the baselines it was reported to
     # beat, and that has to be scored on the same records rather than on full-population
-    # figures from Table 2.
+    # figures from the supervised comparison (main-text Table 3, tab:extratrees).
     ml_rows: list[dict[str, object]] = []
     surviving = paired[KEY].copy()
     surviving["state"] = surviving["state"].astype(str)

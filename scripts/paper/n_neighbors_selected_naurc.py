@@ -1,17 +1,17 @@
-"""Recomputes n_neighbors / n_unique_states nAURC on the selected population behind Table 3.
+"""Recomputes n_neighbors / n_unique_states nAURC on the selected population behind Table 4 (tab:diagnostics).
 
-Table 3 reports five diagnostics. Two more were computed and not shown: n_neighbors (the raw
+Table 4 reported five diagnostics at submission (Table 3 then); it now reports seven. Two more were computed and not shown: n_neighbors (the raw
 retrieved count) and n_unique_states. On the *oracle* population in
 per_generator_diagnostic_naurc_*.csv both sit below 1.0 on all three available datasets, which
 would sit awkwardly beside the manuscript's statement that the results "do not support using
 one neighborhood statistic as a portable confidence score" - two of the five reported
 diagnostics invert on BUS39, and these two do not. That comparison is not admissible as-is:
-Table 3 uses the highest-support-selected population, not the oracle one. This script settles
+Table 4 uses the highest-support-selected population, not the oracle one. This script settles
 it on the population the manuscript actually reports.
 
 Two populations are computed per dataset, because they answer different questions:
 
-- "table3_common": the exact five-metric common-support mask Table 3 uses, so the new numbers
+- "table3_common": the exact five-metric common-support mask Table 4 uses, so the new numbers
   are directly comparable to the published ones. The script reproduces the five published
   nAURC values on this mask first and aborts if any disagrees, so a silent divergence in the
   population or the tie policy cannot be mistaken for a finding.
@@ -136,7 +136,7 @@ def _verify_table3(df: pd.DataFrame, published_path: Path) -> None:
         want = float(published.loc[name])
         if not np.isclose(got, want, rtol=1e-9, atol=1e-9):
             raise AssertionError(f"{name}: recomputed {got:.10f} != published {want:.10f}")
-    logger.info("  verified: all five published Table 3 nAURC values reproduce exactly on this mask")
+    logger.info("  verified: all five published Table 4 nAURC values reproduce exactly on this mask")
 
 
 def main() -> None:
@@ -148,7 +148,7 @@ def main() -> None:
         covered = _load_frame(dataset)
         mask = _common_support_mask(covered, METRIC_SETS["main"])
         table3 = covered[mask]
-        logger.info(f"  Table 3 common population: {len(table3):,} records, {table3['state'].nunique():,} states")
+        logger.info(f"  Table 4 common population: {len(table3):,} records, {table3['state'].nunique():,} states")
         _verify_table3(table3, PAPER_DATA_DIR / published_csv)
 
         for metric_name, higher_is_better in CANDIDATES:

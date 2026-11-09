@@ -24,7 +24,7 @@ PROJECT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 TMP_DIR: Final[Path] = PROJECT_DIR / "tmp"
 OUT_PATH: Final[Path] = PROJECT_DIR / "results" / "data" / "matched_extratrees_comparison.csv"
 
-# Table 2 cannot lose its two original comparators, so their absence is an error rather than a
+# The supervised comparison (main-text Table 3, tab:extratrees) cannot lose its two original comparators, so their absence is an error rather than a
 # silently shorter table. Any further model classes present are reported alongside them.
 REQUIRED_MODELS: Final[set[str]] = {"extra_trees", "location_median"}
 MODEL_ORDER: Final[tuple[str, ...]] = (
@@ -55,7 +55,7 @@ def _label(model: str, max_features: str) -> str:
     """Row identity for the comparison table.
 
     A tree ensemble trained on every feature at each split and one trained on sqrt(p) are
-    different comparators, and the reviewers' objection to Table 2 was precisely that ELES and
+    different comparators, and the reviewers' objection to the supervised comparison (then Table 2, now Table 3) was precisely that ELES and
     BUS39 were compared at different budgets. Keying those rows by model alone would collapse
     them onto each other, so the budget is part of the identity. Models that do not consult
     max_features keep a bare name: labelling them by a budget they ignore would invent a

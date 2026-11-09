@@ -1,6 +1,6 @@
 """Auditable chronology/support audit for ELES 2026-06's exact-topology filter (ai2ai.md,
 2026-08-09/10, Codex review) - design support for the still-open chronological-vs-retrospective
-ELES evaluation decision, NOT the chronological evaluation itself. Does not touch any Table 2 or
+ELES evaluation decision, NOT the chronological evaluation itself. Does not touch any main-text table or
 bootstrap artifact and does not run the retrieval pipeline.
 
 Reads state timestamps from `datasets/eles/2026-06/raw/Podatki_DSA.zip`'s `Dates/` folder into a

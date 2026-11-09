@@ -1,11 +1,11 @@
-"""Generates figures/risk_coverage.tex, the risk-coverage curves behind journal.tex Table 3.
+"""Generates figures/risk_coverage.tex, the risk-coverage curves behind journal.tex Table 4 (tab:diagnostics).
 
-Table 3 reports one nAURC number per diagnostic per dataset. That summarises a curve, and the
+Table 4 reports one nAURC number per diagnostic per dataset. That summarises a curve, and the
 curve carries information the scalar hides: where in the coverage range a diagnostic helps,
 that two diagnostics cross between datasets, and that a few curves are non-monotone. This
 figure plots the underlying curves so those are visible.
 
-Source is bootstrap_ci_selected_{bus39,eles-2026-06}.csv, the same artifact Table 3's point
+Source is bootstrap_ci_selected_{bus39,eles-2026-06}.csv, the same artifact Table 4's point
 estimates and CIs come from, so the figure and the table cannot disagree. Each metric's MAE is
 divided by its own full-coverage MAE, which is exactly the normalisation inside nAURC: a curve
 below 1.0 means withholding the least-trusted records lowers error, and a curve above 1.0
@@ -41,7 +41,7 @@ PANELS: Final[tuple[tuple[str, str, str], ...]] = (
     ("ELES", "bootstrap_ci_selected_eles-2026-06.csv", "eles/2026-06"),
 )
 
-# Display names match Table 3's row labels exactly, and the order matches its row order so the
+# Display names match Table 4's row labels exactly, and the order matches its row order so the
 # legend and the table read the same way. Colours are the Okabe-Ito colourblind-safe palette;
 # each series also carries a distinct marker so the panels survive greyscale printing.
 SERIES: Final[tuple[tuple[str, str, str, str], ...]] = (
@@ -64,7 +64,7 @@ DASHED_SERIES: Final[frozenset[str]] = frozenset({"n_unique_states"})
 
 # The five published diagnostics come from bootstrap_ci_selected_*.csv; the two count
 # diagnostics were added later and live in n_neighbors_selected_naurc.csv, restricted to the
-# same Table 3 common-support population so all seven curves share one basis.
+# same Table 4 common-support population so all seven curves share one basis.
 EXTRA_SOURCE: Final[str] = "n_neighbors_selected_naurc.csv"
 EXTRA_METRICS: Final[frozenset[str]] = frozenset({"n_neighbors", "n_unique_states"})
 

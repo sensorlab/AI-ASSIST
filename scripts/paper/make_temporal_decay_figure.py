@@ -39,7 +39,7 @@ OUTPUT_PATH: Final[Path] = PAPER_DIR / "figures" / "temporal_decay.tex"
 
 # The unexcluded evaluation: every state but the query itself is available. This must be the
 # leave-one-state-out figure (data/eles_temporal_exclusion_control.csv, mae_baseline_marginal),
-# not Table 2 retrieval MAE, which comes from the separate five-fold run and is a different
+# not the retrieval MAE of main-text Table 3 (tab:extratrees), which comes from the separate five-fold run and is a different
 # protocol on a different population.
 BASELINE_COVERAGE: Final[float] = 73.47
 BASELINE_MAE: Final[float] = 0.049747

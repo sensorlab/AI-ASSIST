@@ -1,8 +1,8 @@
 """Paired common-support comparison of the two conditional critical-generator levels in
-journal.tex Table 1 (oracle vs. highest-support candidate), the analysis the manuscript
+journal.tex Table 2 (tab:deoracling; oracle vs. highest-support candidate), the analysis the manuscript
 previously declined to run and flagged as a prerequisite for interpreting the row difference.
 
-Table 1 reports each level's MAE on its own covered population: the oracle row needs the
+Table 2 reports each level's MAE on its own covered population: the oracle row needs the
 recorded critical generator to be present among the retrieved candidates, the selected row
 needs only that some candidate exists at the recorded location. The populations therefore
 differ by exactly the records where the recorded generator was never retrievable
@@ -20,7 +20,7 @@ exist - and reports:
     not independent;
   - the fraction of states where selection is actually worse, which the mean alone hides.
 
-The marginal (Table 1) figures are recomputed here too, so the CSV carries the composition
+The marginal (Table 2) figures are recomputed here too, so the CSV carries the composition
 effect and the paired effect side by side rather than requiring a cross-file join.
 
 Run from the repository root:
@@ -88,7 +88,7 @@ def _analyze(dataset: str, filename: str, oracle_col: str, selection_col: str) -
     has_selection = df[selection_col].notna()
     common = has_oracle & has_selection
 
-    # Marginal figures, reproducing Table 1's two rows on their own covered populations.
+    # Marginal figures, reproducing Table 2's two rows on their own covered populations.
     mae_oracle_marginal = float((df.loc[has_oracle, oracle_col] - df.loc[has_oracle, "cct_true"]).abs().mean())
     mae_selection_marginal = float(
         (df.loc[has_selection, selection_col] - df.loc[has_selection, "cct_true"]).abs().mean()
