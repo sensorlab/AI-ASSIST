@@ -33,9 +33,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evaluation"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _common import load_eles_state_timestamps  # noqa: E402
-from chronological_evaluation import DATASET, KEY, RUN_DIR, HistoryScaler, blocks  # noqa: E402
+from chronological_evaluation import DATASET, KEY, RUN_DIR, SUPERVISED, HistoryScaler, blocks  # noqa: E402
+from matched_extratrees_comparison import _load_ml  # noqa: E402
 from ml_benchmark import build_record_table, make_preprocessor  # noqa: E402
-from referral_decomposition import RAW_ZIP, _eles_clusters  # noqa: E402
+from referral_decomposition import ELES_CAUSAL0, RAW_ZIP, _eles_clusters  # noqa: E402
 from tuned_comparators import FINAL_TREES, MODELS, make, paired_rows  # noqa: E402
 from tuned_comparators import OUTPUT_PATH as TUNED_CSV  # noqa: E402
 from tuned_comparators import RUN_DIR as TUNED_DIR  # noqa: E402
@@ -87,9 +88,9 @@ def check_configs() -> None:
 
 
 def tuned_origin(k: int, history: list[str], test: list[str], lf: pd.DataFrame, tsa: pd.DataFrame, n_jobs: int):
-    path = RUN_DIR / f"tuned_origin{k}.parquet"
+    path, timing_path = RUN_DIR / f"tuned_origin{k}.parquet", RUN_DIR / f"tuned_origin{k}_timings.json"
     if path.exists():
-        return pd.read_parquet(path), []
+        return pd.read_parquet(path), json.loads(timing_path.read_text())
     logger.info(f"tuned origin {k}: training on {len(history):,} states")
     X, y, groups = build_record_table(lf, tsa, scaler=HistoryScaler(history), contingency_cols=("Location",))
     ordinal = groups.groupby(groups, sort=False).cumcount()
@@ -106,6 +107,7 @@ def tuned_origin(k: int, history: list[str], test: list[str], lf: pd.DataFrame, 
         timings.append({"origin": k, "model": model, "quantity": "fit_seconds", "estimate": time.time() - t})
         logger.info(f"tuned origin {k}: {model} fitted ({timings[-1]['estimate']:.0f} s)")
     out.to_parquet(path, index=False)
+    timing_path.write_text(json.dumps(timings))
     return out, timings
 
 
@@ -137,6 +139,25 @@ def compared(retrieval: pd.DataFrame, column: str, tuned, chrono, fold=None) -> 
         if not np.allclose(out["cct_true"], out[c], rtol=0.0, atol=1e-12):
             raise ValueError(f"record keys do not align between {column} and {c}")
     return out
+
+
+def reference_maes(common: pd.DataFrame) -> dict[str, float]:
+    """Descriptive MAEs on the compared records for Supplementary Table S18: retrieval with the globally fitted scaler
+    (the published causal run), the chronologically trained location median, and Table 3's earlier fixed-configuration
+    five-fold predictions. None of them decides."""
+    glob = pd.read_parquet(ELES_CAUSAL0)[[*KEY, "pred_selection"]].rename(columns={"pred_selection": "R_global"})
+    lm = pd.concat([pd.read_parquet(RUN_DIR / f"supervised_origin{k}.parquet") for k in range(N_ORIGINS)])
+    lm = lm[[*KEY, "location_median"]].rename(columns={"location_median": "location_median_chrono"})
+    fixed = _load_ml("eles-2026-06")[0]
+    fixed = fixed[[*KEY, *SUPERVISED.values()]].rename(columns={v: f"{k}_fixed_fold" for k, v in SUPERVISED.items()})
+    d = common[[*KEY, "cct_true"]]
+    for other in (glob, lm, fixed):
+        other["state"] = other["state"].astype(str)
+        d = d.merge(other, on=KEY, validate="1:1")
+    if len(d) != len(common):
+        raise ValueError(f"{len(common) - len(d):,} compared records lack a reference prediction")
+    cols = ["R_global", "location_median_chrono", *(f"{k}_fixed_fold" for k in SUPERVISED)]
+    return {c: float((d[c] - d["cct_true"]).abs().mean()) for c in cols}
 
 
 def main() -> None:
@@ -173,6 +194,8 @@ def main() -> None:
     rows += [{"arm": "R-cont", "quantity": "n_records", "estimate": len(common)}]
     for c in ["R_cont", *(f"{m}_{s}" for m in MODELS for s in ("tuned", "chrono", "fold"))]:
         rows.append({"arm": c, "quantity": "mae", "estimate": float((common[c] - common["cct_true"]).abs().mean())})
+    rows += [{"arm": "R-cont", "quantity": "n_states", "estimate": common["state"].nunique()}]
+    rows += [{"arm": c, "quantity": "mae", "estimate": v} for c, v in reference_maes(common).items()]
     paired = [paired_rows("ELES", common, "R_cont", f"{m}_tuned", units, decide=True) for m in MODELS]
     paired += [paired_rows("ELES", common, f"{m}_tuned", f"{m}_fold", units, decide=False) for m in MODELS]
     paired += [paired_rows("ELES", common, f"{m}_tuned", f"{m}_chrono", units, decide=False) for m in MODELS]
