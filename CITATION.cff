@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata from this file."
+type: software
+title: "AI-ASSIST: retrieval-based critical clearing time estimation with abstention"
+abstract: "Retrieval-based estimator of transient-stability critical clearing times that abstains when the archive holds no topology-compatible state, with the data pipeline, evaluation scripts and the analysis scripts behind every reported number."
+authors:
+  - family-names: Cerar
+    given-names: Gregor
+    email: gregor.cerar@ijs.si
+    affiliation: "Jožef Stefan Institute"
+    orcid: "https://orcid.org/0000-0001-5220-5153"
+  - family-names: Sodin
+    given-names: Denis
+    email: denis.sodin@ijs.si
+    affiliation: "Jožef Stefan Institute"
+repository-code: "https://github.com/sensorlab/AI-ASSIST"
+license: MIT
+keywords:
+  - transient stability assessment
+  - critical clearing time
+  - retrieval-based estimation
+  - power system security
