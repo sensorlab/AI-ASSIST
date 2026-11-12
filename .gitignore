@@ -317,12 +317,12 @@ datasets/*/*
 # unrelated global rules above).
 datasets/**/raw/**
 
-# Then re-allow raw directory contents only for bus39 - the public IEEE 39-bus test case,
-# cleared to ship as a demo in this repository. Every other dataset's raw/ directory is real
-# grid data (ELES/InterSCADA) that must not be committed to this public repo - the directory
-# itself still exists on disk (prepare.py/transform.py read from it locally), it's just untracked.
+# Every dataset's raw/ directory stays untracked. ELES/InterSCADA are real grid data that must
+# not be committed to this public repo; bus39's data.zip and Bus39.jpg are published on Zenodo
+# (doi:10.5281/zenodo.24157276) and datasets/bus39/prepare.py downloads data.zip from there.
+# Only bus39's Slovenian data dictionary, which the Zenodo record does not carry, is tracked.
 !datasets/bus39/raw/
-!datasets/bus39/raw/**
+!datasets/bus39/raw/Razlaga_zapisa_vzorcev.docx
 
 # interim/ and processed/ hold only transform.py-generated build outputs (pickles, SQLite
 # dbs, JSON, ...) - never source files - so ignore their contents outright regardless of

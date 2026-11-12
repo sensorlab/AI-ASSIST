@@ -1,5 +1,6 @@
 """Shared helpers for the scripts/*/prepare*.py dataset-preparation scripts."""
 
+import hashlib
 import json
 import logging
 import re
@@ -8,6 +9,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import urllib.request
 import zipfile
 from collections.abc import Iterable
 from pathlib import Path
@@ -49,6 +51,35 @@ def load_eles_state_timestamps(zip_path: Path) -> pd.Series:
                 rows.append((f"{batch}_{row}", timestamp))
     state_ts = pd.DataFrame(rows, columns=["state", "timestamp"]).set_index("state")
     return pd.to_datetime(state_ts["timestamp"], format="%Y%m%d_%H%M")
+
+
+def _md5(path: Path) -> str:
+    digest = hashlib.md5()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def fetch_verified(url: str, dest: Path, md5: str) -> Path:
+    """Download url to dest and check its MD5; a file already at dest is checked, not downloaded again.
+
+    A mismatch raises instead of overwriting, so a local file that differs from the published one is never replaced
+    silently and a corrupt download never reaches dest.
+    """
+    if not dest.exists():
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        part = dest.with_name(dest.name + ".part")
+        logger.info(f"Downloading {url} -> {dest}")
+        with urllib.request.urlopen(url) as response, part.open("wb") as out:
+            shutil.copyfileobj(response, out)
+        if (actual := _md5(part)) != md5:
+            part.unlink()
+            raise ValueError(f"{url}: MD5 {actual}, expected {md5}")
+        part.replace(dest)
+    elif (actual := _md5(dest)) != md5:
+        raise ValueError(f"{dest}: MD5 {actual}, expected {md5}; remove it to download the published file")
+    return dest
 
 
 def run_script(script: Path, *args: str) -> None:

@@ -1,3 +1,4 @@
+import hashlib
 import sqlite3
 import sys
 import tempfile
@@ -8,8 +9,44 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from scripts._common import REPO_ROOT, extract_zip, remove_files, run_script, write_sqlite_table
+from scripts._common import REPO_ROOT, extract_zip, fetch_verified, remove_files, run_script, write_sqlite_table
 from scripts.prepare import discover_datasets
+
+
+class FetchVerifiedTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.source = self.tmp / "published.zip"
+        self.source.write_bytes(b"published bytes")
+        self.url = self.source.as_uri()
+        self.md5 = hashlib.md5(b"published bytes").hexdigest()
+        self.dest = self.tmp / "raw" / "data.zip"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_downloads_and_verifies(self):
+        self.assertEqual(fetch_verified(self.url, self.dest, self.md5), self.dest)
+        self.assertEqual(self.dest.read_bytes(), b"published bytes")
+
+    def test_verified_file_is_not_downloaded_again(self):
+        fetch_verified(self.url, self.dest, self.md5)
+        self.source.unlink()
+        fetch_verified(self.url, self.dest, self.md5)
+        self.assertEqual(self.dest.read_bytes(), b"published bytes")
+
+    def test_download_mismatch_raises_and_leaves_nothing(self):
+        with self.assertRaises(ValueError):
+            fetch_verified(self.url, self.dest, "0" * 32)
+        self.assertEqual(list(self.dest.parent.iterdir()), [])
+
+    def test_local_file_mismatch_raises_without_overwriting(self):
+        self.dest.parent.mkdir()
+        self.dest.write_bytes(b"local edit")
+        with self.assertRaises(ValueError):
+            fetch_verified(self.url, self.dest, self.md5)
+        self.assertEqual(self.dest.read_bytes(), b"local edit")
 
 
 class ExtractZipTests(unittest.TestCase):

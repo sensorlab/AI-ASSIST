@@ -6,16 +6,17 @@ Prepared by: Matjaž Škrlec, matjaz.skrlec@fe.uni-lj.si
 
 ## Source Files
 
-All raw data is packed in `raw/data.zip`:
+The raw data is published on Zenodo by Škrlec and Rudež, [doi:10.5281/zenodo.24157276](https://doi.org/10.5281/zenodo.24157276) (CC BY 4.0). `prepare.py` downloads `data.zip` from that version record into `raw/` and checks its MD5 against the one Zenodo publishes; a file already in `raw/` is checked, not downloaded again, and a mismatch stops the pipeline. Until 2026-11-12 the archive was tracked in this repository, so releases up to then (including `v1.1.0`) still carry it; the Zenodo file is byte-identical to it.
 
-| File | Role | Notes |
-|---|---|---|
-| `LF_main.csv` | Load-flow features (LF) | 21,783 states × 221 columns |
-| `TSA_main.csv` | Transient stability targets | Wide format, 5 fields × N experiments per row |
-| `FSA_main.csv` | Frequency stability indices | Parsed - see "FSA file" below |
-| `SSSA_main.csv` | Small-signal stability indices | Not used |
-| `Bus39.jpg` | Grid diagram | |
-| `Razlaga_zapisa_vzorcev.docx` | Slovenian data dictionary (source of truth for column semantics) | |
+| File | Where | Role | Notes |
+|---|---|---|---|
+| `LF_main.csv` | `data.zip` | Load-flow features (LF) | 21,783 states × 221 columns |
+| `TSA_main.csv` | `data.zip` | Transient stability targets | Wide format, 5 fields × N experiments per row |
+| `FSA_main.csv` | `data.zip` | Frequency stability indices | Parsed - see "FSA file" below |
+| `SSSA_main.csv` | `data.zip` | Small-signal stability indices | Not used |
+| `Bus39.jpg` | Zenodo record | Grid diagram | Not downloaded; not needed by the pipeline |
+| `Explenation_of_samples.docx` | Zenodo record | English data dictionary | Not downloaded |
+| `Razlaga_zapisa_vzorcev.docx` | `raw/`, tracked here | Slovenian data dictionary (source of truth for column semantics) | |
 
 ## Transform Script
 
