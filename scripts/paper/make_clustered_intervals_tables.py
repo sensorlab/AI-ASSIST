@@ -1,8 +1,9 @@
 """Supplementary Note S7 tables: headline ELES intervals under every resampling unit, and the label-step shift.
 
-Writes results/tables/clustered_intervals.tex (two tabular bodies after the markers "% intervals" and "% label_steps")
-from results/data/clustered_intervals.csv and results/data/label_step_perturbation.csv. Captions live in the
-manuscript; the blocks are inlined there between begin/end markers.
+Writes results/tables/clustered_intervals.tex (tabular bodies after the markers "% intervals", "% later" and
+"% label_steps") from results/data/clustered_intervals.csv, the CSVs of the analyses added after it (LATER_ROWS) and
+results/data/label_step_perturbation.csv. Captions live in the manuscript; the blocks are inlined there between
+begin/end markers.
 
 Run from the repository root:
     uv run python scripts/paper/make_clustered_intervals_tables.py
@@ -28,12 +29,11 @@ ROWS: Final[tuple[tuple[str, str, str, float, int], ...]] = (
     ("H1", "false_alarm_100ms", "False alarm, \\qty{100}{\\ms} (\\%)", 100, 2),
     ("H1", "false_alarm_150ms", "False alarm, \\qty{150}{\\ms} (\\%)", 100, 2),
     ("H1", "false_alarm_200ms", "False alarm, \\qty{200}{\\ms} (\\%)", 100, 2),
-    ("H1", "referral_100ms", "State referral, \\qty{100}{\\ms} (\\%)", 100, 2),
-    ("H1", "referral_150ms", "State referral, \\qty{150}{\\ms} (\\%)", 100, 2),
-    ("H1", "referral_200ms", "State referral, \\qty{200}{\\ms} (\\%)", 100, 2),
+    ("H1", "referral_100ms", "Referral load, \\qty{100}{\\ms} (\\%)", 100, 2),
+    ("H1", "referral_150ms", "Referral load, \\qty{150}{\\ms} (\\%)", 100, 2),
+    ("H1", "referral_200ms", "Referral load, \\qty{200}{\\ms} (\\%)", 100, 2),
     ("H2", "mae_oracle", "MAE, recorded generator (s)", 1, 4),
     ("H2", "mae_generator_only_selection", "MAE, highest-support generator (s)", 1, 4),
-    ("H3", "mae_retrieval_minus_gradient_boosting", "MAE, retrieval $-$ gradient boosting (s)", 1, 4),
     ("H4", "mae_causal_minus_retrospective", "MAE, causal $-$ retrospective (s)", 1, 4),
     ("H6", "recall_retrieval_minus_gradient_boosting", "Recall at matched load, retrieval $-$ GB (pts)", 100, 2),
     ("H5", "naurc_cct_weighted_std_common", "nAURC, weighted CCT dispersion", 1, 3),
@@ -45,6 +45,91 @@ ROWS: Final[tuple[tuple[str, str, str, float, int], ...]] = (
     ("H5", "naurc_neighborhood_compactness_common", "nAURC, neighborhood compactness", 1, 3),
     ("H5", "naurc_n_neighbors_all_covered", "nAURC, neighbor count, all covered", 1, 3),
     ("H5", "naurc_n_unique_states_all_covered", "nAURC, unique states, all covered", 1, 3),
+)
+
+# Headline ELES intervals of the main text from the analyses added after analysis 04:
+# (csv, row filter, quantity, label, scale, decimals).
+LATER_ROWS: Final[tuple[tuple[str, dict[str, object], str, str, float, int], ...]] = (
+    (
+        "referral_decomposition",
+        {"dataset": "ELES", "analysis": "C2", "tau_s": 0.2},
+        "delta_referral_coverage",
+        "Referral load, \\qty{200}{\\ms}, coverage step (pts)",
+        100,
+        2,
+    ),
+    (
+        "referral_decomposition",
+        {"dataset": "ELES", "analysis": "C2", "tau_s": 0.2},
+        "delta_referral_error",
+        "Referral load, \\qty{200}{\\ms}, estimate step (pts)",
+        100,
+        2,
+    ),
+    (
+        "referral_decomposition",
+        {"dataset": "ELES", "analysis": "C2", "tau_s": 0.2},
+        "delta_referral_coverage_minus_error",
+        "Referral load, \\qty{200}{\\ms}, coverage $-$ estimate step (pts)",
+        100,
+        2,
+    ),
+    (
+        "referral_decomposition",
+        {"dataset": "ELES", "analysis": "C2", "tau_s": 0.2},
+        "delta_missed_unsafe_error",
+        "Missed unsafe, \\qty{200}{\\ms}, estimate step",
+        1,
+        0,
+    ),
+    (
+        "tuned_comparators",
+        {"dataset": "ELES"},
+        "mae_retrieval_minus_hist_gradient_boosting_tuned",
+        "MAE, retrieval $-$ tuned gradient boosting (s)",
+        1,
+        4,
+    ),
+    (
+        "tuned_comparators",
+        {"dataset": "ELES"},
+        "mae_retrieval_minus_extra_trees_tuned",
+        "MAE, retrieval $-$ tuned extra trees (s)",
+        1,
+        4,
+    ),
+    (
+        "chronological_tuned",
+        {"dataset": "ELES"},
+        "mae_R_cont_minus_hist_gradient_boosting_tuned",
+        "MAE, chronological, retrieval $-$ tuned GB (s)",
+        1,
+        4,
+    ),
+    (
+        "chronological_evaluation",
+        {"dataset": "ELES"},
+        "mae_R_cont_minus_R_global",
+        "MAE, history-fitted $-$ global scaler (s)",
+        1,
+        4,
+    ),
+    (
+        "eles_uniform_weights",
+        {"availability": "retrospective"},
+        "mae_uniform_minus_kernel",
+        "MAE, uniform $-$ kernel weights, retrospective (ms)",
+        1000,
+        1,
+    ),
+    (
+        "eles_uniform_weights",
+        {"availability": "causal_lag0"},
+        "mae_uniform_minus_kernel",
+        "MAE, uniform $-$ kernel weights, causal (ms)",
+        1000,
+        1,
+    ),
 )
 
 
@@ -66,6 +151,23 @@ def intervals() -> str:
         for unit in UNITS:
             r = d.loc[(analysis, quantity, unit)]
             cells.append(f"{_num(scale * r['ci_low'], dec)}, {_num(scale * r['ci_high'], dec)}")
+        rows.append(" & ".join(cells) + " \\\\")
+    header = ["Quantity & Estimate & State & Topology group & Calendar day & Calendar week \\\\"]
+    return _tabular("lrrrrr", header, rows)
+
+
+def later() -> str:
+    """Second panel: the later headline intervals, each required under all four units."""
+    rows = []
+    for csv, where, quantity, label, scale, dec in LATER_ROWS:
+        d = pd.read_csv(DATA_DIR / f"{csv}.csv")
+        for col, value in where.items():
+            d = d[d[col] == value]
+        d = d[d["quantity"] == quantity].set_index("resampling_unit")
+        if not set(UNITS) <= set(d.index) or d.index.duplicated().any():
+            raise ValueError(f"{csv}: {quantity} lacks a unique row for every unit: {list(d.index)}")
+        cells = [label, _num(scale * d.loc["state", "estimate"], dec)]
+        cells += [f"{_num(scale * d.loc[u, 'ci_low'], dec)}, {_num(scale * d.loc[u, 'ci_high'], dec)}" for u in UNITS]
         rows.append(" & ".join(cells) + " \\\\")
     header = ["Quantity & Estimate & State & Topology group & Calendar day & Calendar week \\\\"]
     return _tabular("lrrrrr", header, rows)
@@ -104,7 +206,7 @@ def label_steps() -> str:
 
 def main() -> None:
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT_PATH.write_text(f"{NOTE}\n% intervals\n{intervals()}\n% label_steps\n{label_steps()}\n")
+    OUTPUT_PATH.write_text(f"{NOTE}\n% intervals\n{intervals()}\n% later\n{later()}\n% label_steps\n{label_steps()}\n")
     print(OUTPUT_PATH.read_text())
 
 

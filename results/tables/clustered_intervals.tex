@@ -9,12 +9,11 @@ Recall, \qty{200}{\ms} (\%) & 97.52 & 96.93, 98.05 & 96.82, 98.17 & 96.71, 98.20
 False alarm, \qty{100}{\ms} (\%) & 40.31 & 38.86, 41.73 & 37.80, 42.91 & 38.10, 42.53 & 37.46, 43.24 \\
 False alarm, \qty{150}{\ms} (\%) & 43.71 & 42.14, 45.33 & 40.82, 46.64 & 41.45, 46.08 & 40.49, 47.01 \\
 False alarm, \qty{200}{\ms} (\%) & 54.33 & 51.93, 56.66 & 49.88, 59.20 & 50.03, 58.74 & 47.74, 60.76 \\
-State referral, \qty{100}{\ms} (\%) & 40.31 & 38.86, 41.73 & 37.80, 42.91 & 38.10, 42.53 & 37.46, 43.24 \\
-State referral, \qty{150}{\ms} (\%) & 51.10 & 49.62, 52.52 & 48.11, 54.14 & 48.05, 54.03 & 46.07, 56.24 \\
-State referral, \qty{200}{\ms} (\%) & 81.27 & 80.15, 82.38 & 78.47, 84.09 & 77.89, 84.37 & 75.04, 86.63 \\
+Referral load, \qty{100}{\ms} (\%) & 40.31 & 38.86, 41.73 & 37.80, 42.91 & 38.10, 42.53 & 37.46, 43.24 \\
+Referral load, \qty{150}{\ms} (\%) & 51.10 & 49.62, 52.52 & 48.11, 54.14 & 48.05, 54.03 & 46.07, 56.24 \\
+Referral load, \qty{200}{\ms} (\%) & 81.27 & 80.15, 82.38 & 78.47, 84.09 & 77.89, 84.37 & 75.04, 86.63 \\
 MAE, recorded generator (s) & 0.0429 & 0.0418, 0.0441 & 0.0408, 0.0449 & 0.0404, 0.0456 & 0.0374, 0.0485 \\
 MAE, highest-support generator (s) & 0.0497 & 0.0484, 0.0511 & 0.0474, 0.0520 & 0.0468, 0.0527 & 0.0436, 0.0562 \\
-MAE, retrieval $-$ gradient boosting (s) & $-$0.0043 & $-$0.0056, $-$0.0029 & $-$0.0062, $-$0.0023 & $-$0.0064, $-$0.0021 & $-$0.0079, $-$0.0006 \\
 MAE, causal $-$ retrospective (s) & 0.0048 & 0.0039, 0.0058 & 0.0039, 0.0057 & 0.0039, 0.0058 & 0.0038, 0.0060 \\
 Recall at matched load, retrieval $-$ GB (pts) & 0.40 & $-$0.59, 1.35 & $-$0.79, 1.60 & $-$0.86, 1.85 & $-$1.23, 2.60 \\
 nAURC, weighted CCT dispersion & 0.882 & 0.869, 0.893 & 0.866, 0.897 & 0.867, 0.896 & 0.860, 0.903 \\
@@ -26,6 +25,23 @@ nAURC, minimum query distance & 0.814 & 0.799, 0.829 & 0.794, 0.834 & 0.794, 0.8
 nAURC, neighborhood compactness & 0.972 & 0.961, 0.981 & 0.957, 0.987 & 0.959, 0.985 & 0.957, 0.986 \\
 nAURC, neighbor count, all covered & 0.893 & 0.882, 0.903 & 0.876, 0.907 & 0.877, 0.907 & 0.877, 0.907 \\
 nAURC, unique states, all covered & 0.887 & 0.875, 0.898 & 0.870, 0.903 & 0.870, 0.902 & 0.870, 0.903 \\
+\bottomrule
+\end{tabular}
+% later
+\begin{tabular}{lrrrrr}
+\toprule
+Quantity & Estimate & State & Topology group & Calendar day & Calendar week \\
+\midrule
+Referral load, \qty{200}{\ms}, coverage step (pts) & 5.03 & 4.39, 5.65 & 4.19, 5.92 & 4.01, 6.15 & 3.57, 6.76 \\
+Referral load, \qty{200}{\ms}, estimate step (pts) & $-$0.39 & $-$0.82, 0.02 & $-$0.96, 0.18 & $-$0.96, 0.18 & $-$0.95, 0.16 \\
+Referral load, \qty{200}{\ms}, coverage $-$ estimate step (pts) & 5.42 & 4.64, 6.17 & 4.41, 6.43 & 4.28, 6.69 & 3.71, 7.37 \\
+Missed unsafe, \qty{200}{\ms}, estimate step & 10 & $-$1, 22 & $-$1, 21 & $-$2, 23 & $-$1, 22 \\
+MAE, retrieval $-$ tuned gradient boosting (s) & 0.0201 & 0.0188, 0.0213 & 0.0184, 0.0218 & 0.0180, 0.0222 & 0.0161, 0.0244 \\
+MAE, retrieval $-$ tuned extra trees (s) & 0.0119 & 0.0109, 0.0130 & 0.0107, 0.0133 & 0.0104, 0.0136 & 0.0092, 0.0147 \\
+MAE, chronological, retrieval $-$ tuned GB (s) & $-$0.0012 & $-$0.0030, 0.0006 & $-$0.0039, 0.0014 & $-$0.0042, 0.0018 & $-$0.0073, 0.0042 \\
+MAE, history-fitted $-$ global scaler (s) & 0.0021 & 0.0015, 0.0028 & 0.0012, 0.0033 & 0.0013, 0.0030 & 0.0011, 0.0033 \\
+MAE, uniform $-$ kernel weights, retrospective (ms) & 14.8 & 13.8, 15.8 & 12.7, 16.8 & 13.0, 16.7 & 12.1, 17.7 \\
+MAE, uniform $-$ kernel weights, causal (ms) & 11.4 & 10.3, 12.4 & 9.9, 12.8 & 10.0, 12.9 & 9.4, 13.4 \\
 \bottomrule
 \end{tabular}
 % label_steps
