@@ -1,7 +1,7 @@
 """Bounds on ELES coverage and abstention over every attempted state, not only the analysed ones (R2.3b).
 
-The source campaign attempted 5,136 operating states; 4,393 are analysed (707 ended with execution errors and 36
-completed states are absent from the delivered tables, Methods). The excluded states have no features, so retrieval
+The source campaign attempted 5,136 operating states; 4,393 are analysed, and the other 743 could not be assessed
+because the initial load flow did not converge (Methods). The excluded states have no features, so retrieval
 cannot be run for them, and their effect can only be bounded:
 
 - all_uncovered: every excluded state lacks compatible support for every contingency, so it abstains and is referred.
