@@ -1,7 +1,8 @@
 """How are BUS39 fault records structured, and does their number follow stability? (exploratory analysis 13, R2.14)
 
-Fault locations are not a fixed list: for each state, the search starts at the buses nearest the generators, faults
-each bus and then the lines leaving it, and continues outward, so the number of faults differs between states. The raw
+Fault locations are not a fixed list: for each state, faults are simulated in sequence from the generator terminals to
+nearby elements, each bus and then the lines leaving it, until the CCT exceeds a predefined threshold, so the number of
+faults differs between states. The raw
 TSA table is as wide as the largest state (59 faults). A fault stable at the 2.00 s search limit ("too large" in the
 data dictionary) or whose simulation did not converge is not recorded, and the output cannot tell either from a
 location the search did not reach. If the search omits faults stable at the limit, lightly loaded states record fewer
