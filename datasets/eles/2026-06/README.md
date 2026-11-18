@@ -213,7 +213,7 @@ this framing - see `paper/TODO.md`'s ablation entry for the full write-up and ex
 
 ### FSA files (`clean_files/FSA/FSA_main_N.csv`)
 
-One row per state, then repeating 3-column groups per **contingency**, identified by a `<failed_gen>_<measured_gen>` pair (per the data dictionary: the first generator is the one disconnected for the fault, the second is where the frequency was measured) - e.g. `minF_Gen 2_Gen 54`. Columns per contingency: `minF`, `maxF`, `maxRoCoF` (frequency in pu, RoCoF in pu/s). **No `M1/M2/M3` margin columns or `MThreshold` columns in this drop** (present in `eles/2026-01`, absent here - confirmed by direct header inspection, 7261 columns = 1 index + 2420 contingencies × 3 metrics exactly).
+One row per state, then repeating 3-column groups per **contingency**, identified by a `<failed_gen>_<measured_gen>` pair (per the data dictionary: the first generator is the one disconnected for the fault, the second is where the frequency was measured) - e.g. `minF_28W-G-000000000A_28W-G-000000000B`. Columns per contingency: `minF`, `maxF`, `maxRoCoF` (frequency in pu, RoCoF in pu/s). **No `M1/M2/M3` margin columns or `MThreshold` columns in this drop** (present in `eles/2026-01`, absent here - confirmed by direct header inspection, 7261 columns = 1 index + 2420 contingencies × 3 metrics exactly).
 
 - **No CSV quirks**: parses fine as-is with plain `pd.read_csv`, same as this drop's LF/TSA.
 - **Wide-to-long**: the compound generator-pair suffix isn't `pd.wide_to_long`-compatible (no numeric suffix) - reshaped manually (stack per metric, concat), then split into `failed_gen`/`measured_gen` columns on the single `_` separator (every id has exactly one, confirmed empirically). See `melt_fsa()` in `transform.py`.

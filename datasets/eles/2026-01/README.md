@@ -55,13 +55,13 @@ Each batch `N` (0–88) contains:
   2. Trailing semicolons stripped per line: `re.sub(r";+$", "", text, flags=re.MULTILINE)`
 - **CCT units**: Seconds, range 0.11–1.95 s.
 - **`Type`**: Always `1` (line contingency) — consistent with `only_lne` in the filename. Bus faults are not included in this dataset.
-- **`Crit_gen`**: ENTSO-E EIC codes, e.g. `Gen 1`. 73 unique generators.
-- **`Location`**: PowerFactory element IDs for the faulted line, e.g. `Line 10`. 121 unique locations.
+- **`Crit_gen`**: ENTSO-E EIC codes, e.g. `28W-G-000000000C`. 73 unique generators.
+- **`Location`**: PowerFactory element IDs for the faulted line, e.g. `10T-XX-SI-00000X`. 121 unique locations.
 
 ### FSA files (`FSA_main_N.csv`)
 
 - **No CSV quirks**: unlike TSA, FSA parses fine as-is with plain `pd.read_csv` - **do not** apply TSA's missing-separator regex fix here. An earlier attempt did, and it corrupted FSA's multi-digit values (e.g. the `M1`/`M2`/`M3` margin metrics' `100,0`), because that regex only expects a single digit before the decimal comma - it silently split `100,0` into `10` and `0,0`, breaking the CSV's field count.
-- **Wide-to-long**: unlike TSA's numeric `_N` suffix (reshapable via `pd.wide_to_long`), FSA's per-contingency columns are suffixed with a compound `<failed_gen>_<measured_gen>` id (e.g. `minF_Gen 2_Gen 54`) - reshaped manually (stack per metric, concat) rather than via `pd.wide_to_long`, then split into two columns on the single `_` separator (every id has exactly one, confirmed empirically - generator EIC codes use dashes internally, never underscores). See `melt_fsa()` in `transform.py`.
+- **Wide-to-long**: unlike TSA's numeric `_N` suffix (reshapable via `pd.wide_to_long`), FSA's per-contingency columns are suffixed with a compound `<failed_gen>_<measured_gen>` id (e.g. `minF_28W-G-000000000A_28W-G-000000000B`) - reshaped manually (stack per metric, concat) rather than via `pd.wide_to_long`, then split into two columns on the single `_` separator (every id has exactly one, confirmed empirically - generator EIC codes use dashes internally, never underscores). See `melt_fsa()` in `transform.py`.
 - **`failed_gen`/`measured_gen`**: intentionally *not* named `Crit_gen` like TSA - TSA's `Crit_gen` is a simulation *outcome* (the generator whose rotor angle diverges, determining CCT), whereas `failed_gen` is the *initiating* contingency (the generator deliberately disconnected) - conceptually closer to TSA's `Location` than to `Crit_gen`. `measured_gen` avoids `obs_gen`/`Obs*` since that prefix already means something else in this dataset family (SSSA's observability factor).
 - **`MThreshold1/2/3`**: three global scalar columns (0.99/0.97/0.95 - 99%/97%/95% of nominal frequency), confirmed identical across all 89 batches. Dropped before reshaping rather than carried as per-row data.
 - **Metrics per (failed_gen, measured_gen) pair**: `minF`, `maxF`, `maxRoCoF` (frequency in pu, RoCoF in pu/s), plus `M1`/`M2`/`M3` margin-violation metrics relative to the three thresholds above.
