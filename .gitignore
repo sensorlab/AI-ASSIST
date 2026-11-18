@@ -320,9 +320,7 @@ datasets/**/raw/**
 # Every dataset's raw/ directory stays untracked. ELES/InterSCADA are real grid data that must
 # not be committed to this public repo; bus39's data.zip and Bus39.jpg are published on Zenodo
 # (doi:10.5281/zenodo.24157276) and datasets/bus39/prepare.py downloads data.zip from there.
-# Only bus39's Slovenian data dictionary, which the Zenodo record does not carry, is tracked.
-!datasets/bus39/raw/
-!datasets/bus39/raw/Razlaga_zapisa_vzorcev.docx
+# No raw file is tracked, and all were removed from the history on 2026-11-18.
 
 # interim/ and processed/ hold only transform.py-generated build outputs (pickles, SQLite
 # dbs, JSON, ...) - never source files - so ignore their contents outright regardless of
