@@ -59,7 +59,7 @@ uv run ai-assist-prepare <dataset>
 
 | Dataset | Description | Source format |
 |---|---|---|
-| `bus39` | IEEE 39-bus test system | ZIP archive |
+| `bus39` | IEEE 39-bus test system, published on Zenodo by Škrlec and Rudež ([doi:10.5281/zenodo.24157276](https://doi.org/10.5281/zenodo.24157276)) | ZIP archive, downloaded by `prepare.py` |
 | `eles/2026-01` | ELES Slovenian transmission grid, version 2026-01 | ZIP archive |
 | `eles/2026-06` | ELES Slovenian transmission grid, version 2026-06 | ZIP archive |
 | `interscada/pl` | 41-bus grid (New England 39-bus extended) | Raw CSVs, no archive |
