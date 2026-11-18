@@ -13,6 +13,13 @@ authors:
     given-names: Denis
     email: denis.sodin@ijs.si
     affiliation: "Jožef Stefan Institute"
+  - family-names: Škrlec
+    given-names: Matjaž
+    affiliation: "University of Ljubljana, Faculty of Electrical Engineering"
+  - family-names: Rudež
+    given-names: Urban
+    email: urban.rudez@fe.uni-lj.si
+    affiliation: "University of Ljubljana, Faculty of Electrical Engineering"
 repository-code: "https://github.com/sensorlab/AI-ASSIST"
 license: MIT
 keywords:
