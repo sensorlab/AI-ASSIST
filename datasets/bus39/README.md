@@ -16,7 +16,7 @@ The raw data is published on Zenodo by Škrlec and Rudež, [doi:10.5281/zenodo.2
 | `SSSA_main.csv` | `data.zip` | Small-signal stability indices | Not used |
 | `Bus39.jpg` | Zenodo record | Grid diagram | Not downloaded; not needed by the pipeline |
 | `Explenation_of_samples.docx` | Zenodo record | English data dictionary | Not downloaded |
-| `Razlaga_zapisa_vzorcev.docx` | `raw/`, tracked here | Slovenian data dictionary (source of truth for column semantics) | |
+| `Razlaga_zapisa_vzorcev.docx` | Dataset authors | Slovenian data dictionary (source of truth for column semantics) | Not tracked here; removed from this repository's history on 2026-11-18 with all other raw data |
 
 ## Transform Script
 
